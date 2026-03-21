@@ -31,6 +31,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         output: "static",
         favicon: "./assets/favicon.png",
     },
+    experiments: {
+        baseUrl: "/lent-meal-planner-app",
+    },
     plugins: ["expo-router", "expo-font"],
     scheme: "lentmealplanner",
     extra: {
