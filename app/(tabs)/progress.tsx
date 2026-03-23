@@ -9,7 +9,7 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { Colors } from "../../constants/Colors";
 import {
     getLoggedMeals, getWeightEntries, saveWeightEntry, removeLoggedMeal, deleteWeightEntry,
-    lastNDates, formatDate, todayDate,
+    lastNDates, formatDate, todayDate, logMeal,
     type LoggedMeal, type WeightEntry,
 } from "../../lib/storage";
 import { useStore } from "../../lib/store";
@@ -27,6 +27,11 @@ export default function ProgressScreen() {
     const [weightInput, setWeightInput] = useState("");
     const [weightUnit, setWeightUnit] = useState<"kg" | "lbs">("lbs");
     const [savingWeight, setSavingWeight] = useState(false);
+
+    const [customMealTitle, setCustomMealTitle] = useState("");
+    const [customCalories, setCustomCalories] = useState("");
+    const [savingMeal, setSavingMeal] = useState(false);
+    const [showCustomForm, setShowCustomForm] = useState(false);
 
     // Reload whenever tab becomes active
     useFocusEffect(
@@ -49,6 +54,24 @@ export default function ProgressScreen() {
         setWeightInput("");
         await load();
         setSavingWeight(false);
+    }
+
+    async function handleSaveCustomMeal() {
+        if (!customMealTitle && !customCalories) return;
+        const cal = parseInt(customCalories, 10) || 0;
+        const title = customMealTitle.trim() || "Custom Calories";
+        setSavingMeal(true);
+        await logMeal({
+            id: Math.random().toString(36).slice(2, 10),
+            title,
+            source: "Manual Entry",
+            totalNutrition: { calories: cal, protein: 0, carbs: 0, fiber: 0, fat: 0 }
+        });
+        setCustomMealTitle("");
+        setCustomCalories("");
+        setShowCustomForm(false);
+        await load();
+        setSavingMeal(false);
     }
 
     async function handleDeleteMeal(id: string) {
@@ -145,6 +168,80 @@ export default function ProgressScreen() {
             >
                 {tab === "nutrition" ? (
                     <>
+                        {/* Custom Meal Form */}
+                        <View style={{
+                            backgroundColor: C.card, borderRadius: 20, borderWidth: 1,
+                            borderColor: C.border, padding: 16, marginBottom: 20,
+                        }}>
+                            <TouchableOpacity
+                                onPress={() => setShowCustomForm(!showCustomForm)}
+                                activeOpacity={0.7}
+                                style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}
+                            >
+                                <Text style={{ color: C.text, fontSize: 14, fontWeight: "700" }}>
+                                    Log Custom Meal / Calories
+                                </Text>
+                                <MaterialCommunityIcons
+                                    name={showCustomForm ? "chevron-up" : "chevron-down"}
+                                    size={20}
+                                    color={C.textMuted}
+                                />
+                            </TouchableOpacity>
+
+                            {showCustomForm && (
+                                <View style={{ marginTop: 16, gap: 12 }}>
+                                    <View style={{ flexDirection: "row", gap: 10 }}>
+                                        <TextInput
+                                            value={customMealTitle}
+                                            onChangeText={setCustomMealTitle}
+                                            placeholder="Meal name (e.g. Snack)"
+                                            placeholderTextColor={C.textDim}
+                                            style={{
+                                                flex: 2,
+                                                backgroundColor: C.cardElevated,
+                                                borderWidth: 1.5, borderColor: C.border,
+                                                borderRadius: 12, paddingHorizontal: 14,
+                                                paddingVertical: Platform.OS === "ios" ? 12 : 10,
+                                                color: C.text, fontSize: 15, fontWeight: "600",
+                                            }}
+                                        />
+                                        <TextInput
+                                            value={customCalories}
+                                            onChangeText={setCustomCalories}
+                                            placeholder="Calories"
+                                            placeholderTextColor={C.textDim}
+                                            keyboardType="numeric"
+                                            style={{
+                                                flex: 1,
+                                                backgroundColor: C.cardElevated,
+                                                borderWidth: 1.5, borderColor: C.border,
+                                                borderRadius: 12, paddingHorizontal: 14,
+                                                paddingVertical: Platform.OS === "ios" ? 12 : 10,
+                                                color: C.text, fontSize: 15, fontWeight: "600",
+                                            }}
+                                        />
+                                    </View>
+                                    <TouchableOpacity
+                                        onPress={handleSaveCustomMeal}
+                                        disabled={(!customMealTitle && !customCalories) || savingMeal}
+                                        activeOpacity={0.7}
+                                        style={{
+                                            paddingVertical: 12, borderRadius: 12,
+                                            backgroundColor: (customMealTitle || customCalories) ? C.accent : C.cardElevated,
+                                            alignItems: "center", justifyContent: "center",
+                                        }}
+                                    >
+                                        <Text style={{
+                                            color: (customMealTitle || customCalories) ? C.background : C.textDim,
+                                            fontWeight: "800", fontSize: 14,
+                                        }}>
+                                            Save Custom Entry
+                                        </Text>
+                                    </TouchableOpacity>
+                                </View>
+                            )}
+                        </View>
+
                         {/* Weekly summary cards */}
                         <View style={{ flexDirection: "row", gap: 8, marginBottom: 20 }}>
                             <WeekSummaryCard label="Calories" value={weeklyTotals.calories} unit="kcal" target={config.calories * 7} C={C} color={C.accent} />

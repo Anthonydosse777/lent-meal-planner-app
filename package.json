@@ -41,6 +41,7 @@
     "@babel/core": "^7.24.0",
     "@types/react": "~18.3.12",
     "dotenv": "^16.4.0",
+    "gh-pages": "^6.3.0",
     "typescript": "^5.3.0"
   }
 }
