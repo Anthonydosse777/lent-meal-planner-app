@@ -28,7 +28,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     },
     web: {
         bundler: "metro",
-        output: "static",
+        output: process.env.GITHUB_ACTIONS ? "static" : "single",
         favicon: "./assets/favicon.png",
     },
     experiments: {

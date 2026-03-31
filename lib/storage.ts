@@ -1,4 +1,4 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { supabase } from "./supabase";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -27,11 +27,6 @@ export interface WeightEntry {
     unit: "kg" | "lbs";
 }
 
-// ─── Keys ─────────────────────────────────────────────────────────────────────
-
-const MEALS_KEY = "@lent_planner:logged_meals";
-const WEIGHT_KEY = "@lent_planner:weight_entries";
-
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 export function todayDate(): string {
@@ -43,7 +38,6 @@ export function formatDate(date: string): string {
     return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-/** Returns the last N calendar dates as "YYYY-MM-DD" strings, ending today. */
 export function lastNDates(n: number): string[] {
     const dates: string[] = [];
     for (let i = n - 1; i >= 0; i--) {
@@ -57,58 +51,83 @@ export function lastNDates(n: number): string[] {
 // ─── Meal log ─────────────────────────────────────────────────────────────────
 
 export async function getLoggedMeals(): Promise<LoggedMeal[]> {
-    try {
-        const raw = await AsyncStorage.getItem(MEALS_KEY);
-        return raw ? (JSON.parse(raw) as LoggedMeal[]) : [];
-    } catch {
-        return [];
-    }
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return [];
+
+    const { data, error } = await supabase
+        .from('logged_meals')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+
+    if (error || !data) return [];
+
+    return data.map((row: any) => ({
+        id: row.id,
+        date: row.date,
+        loggedAt: row.created_at,
+        meal: row.meal_data,
+    }));
 }
 
 export async function logMeal(meal: LoggedMeal["meal"]): Promise<void> {
-    const existing = await getLoggedMeals();
-    existing.push({
-        id: Math.random().toString(36).slice(2, 10),
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    await supabase.from('logged_meals').insert({
+        user_id: user.id,
         date: todayDate(),
-        loggedAt: new Date().toISOString(),
-        meal,
+        meal_data: meal
     });
-    await AsyncStorage.setItem(MEALS_KEY, JSON.stringify(existing));
 }
 
 export async function removeLoggedMeal(id: string): Promise<void> {
-    const existing = await getLoggedMeals();
-    await AsyncStorage.setItem(
-        MEALS_KEY,
-        JSON.stringify(existing.filter((m) => m.id !== id))
-    );
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    await supabase.from('logged_meals').delete().eq('id', id).eq('user_id', user.id);
 }
 
 // ─── Weight log ───────────────────────────────────────────────────────────────
 
 export async function getWeightEntries(): Promise<WeightEntry[]> {
-    try {
-        const raw = await AsyncStorage.getItem(WEIGHT_KEY);
-        return raw ? (JSON.parse(raw) as WeightEntry[]) : [];
-    } catch {
-        return [];
-    }
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return [];
+
+    const { data, error } = await supabase
+        .from('weight_entries')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('date', { ascending: true });
+
+    if (error || !data) return [];
+
+    return data.map((row: any) => ({
+        date: row.date,
+        weight: Number(row.weight),
+        unit: row.unit,
+    }));
 }
 
 export async function saveWeightEntry(weight: number, unit: "kg" | "lbs", date?: string): Promise<void> {
-    const entries = await getWeightEntries();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
     const targetDate = date ?? todayDate();
-    const filtered = entries.filter((e) => e.date !== targetDate);
-    filtered.push({ date: targetDate, weight, unit });
-    // Keep sorted by date
-    filtered.sort((a, b) => a.date.localeCompare(b.date));
-    await AsyncStorage.setItem(WEIGHT_KEY, JSON.stringify(filtered));
+
+    // Upsert equivalent by deleting the old and inserting the new
+    await supabase.from('weight_entries').delete().eq('date', targetDate).eq('user_id', user.id);
+    await supabase.from('weight_entries').insert({
+        user_id: user.id,
+        date: targetDate,
+        weight: weight,
+        unit: unit
+    });
 }
 
 export async function deleteWeightEntry(date: string): Promise<void> {
-    const entries = await getWeightEntries();
-    await AsyncStorage.setItem(
-        WEIGHT_KEY,
-        JSON.stringify(entries.filter((e) => e.date !== date))
-    );
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    await supabase.from('weight_entries').delete().eq('date', date).eq('user_id', user.id);
 }
