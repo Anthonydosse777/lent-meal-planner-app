@@ -17,8 +17,9 @@ export default function RootLayout() {
     const [initialized, setInitialized] = useState(false);
 
     useEffect(() => {
-        supabase.auth.getSession().then(({ data: { session } }) => {
-            setSession(session);
+        // Always require fresh sign-in on app load
+        supabase.auth.signOut().then(() => {
+            setSession(null);
             setInitialized(true);
             SplashScreen.hideAsync();
         });

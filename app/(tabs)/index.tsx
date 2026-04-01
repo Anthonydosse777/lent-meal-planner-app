@@ -1,14 +1,17 @@
+import { useCallback, useEffect, useState } from "react";
 import {
     View, Text, ScrollView, TouchableOpacity, TextInput,
     useColorScheme, Platform,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
+import { useFocusEffect } from "@react-navigation/native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { Colors } from "../../constants/Colors";
 import { useStore, setConfig, setState, type PlannerConfig } from "../../lib/store";
 import { fetchAiMeal } from "../../lib/api";
 import { generateMeal } from "../../lib/meal-logic";
+import { getLoggedMeals, todayDate } from "../../lib/storage";
 import type { Track } from "../../lib/meal-data";
 
 const TRACK_OPTIONS: { value: Track; label: string; sub: string; icon: string }[] = [
@@ -28,6 +31,28 @@ export default function PlanScreen() {
     const { config, loadingSlots } = useStore();
     const router = useRouter();
     const isGenerating = loadingSlots.some(Boolean);
+
+    const [caloriesEaten, setCaloriesEaten] = useState(0);
+    const [proteinEaten, setProteinEaten] = useState(0);
+    const [mealsToday, setMealsToday] = useState(0);
+
+    useFocusEffect(
+        useCallback(() => {
+            getLoggedMeals().then((meals) => {
+                const today = todayDate();
+                const todayMeals = meals.filter((m) => m.date === today);
+                const cals = todayMeals.reduce((sum, m) => sum + (m.meal.totalNutrition?.calories ?? 0), 0);
+                const prot = todayMeals.reduce((sum, m) => sum + (m.meal.totalNutrition?.protein ?? 0), 0);
+                setCaloriesEaten(Math.round(cals));
+                setProteinEaten(Math.round(prot));
+                setMealsToday(todayMeals.length);
+            });
+        }, [])
+    );
+
+    const caloriesLeft = Math.max(0, config.calories - caloriesEaten);
+    const proteinLeft = Math.max(0, config.protein - proteinEaten);
+    const calProgress = config.calories > 0 ? Math.min(1, caloriesEaten / config.calories) : 0;
 
     async function handleGenerate() {
         const { protein, calories, strictness, mealsPerDay, mode, provider } = config;
@@ -81,6 +106,84 @@ export default function PlanScreen() {
                     <Text style={{ color: C.textMuted, fontSize: 14, marginTop: 4 }}>
                         Configure your meal plan and let AI generate it.
                     </Text>
+                </View>
+
+                {/* Daily Calories Remaining Card */}
+                <View style={{
+                    backgroundColor: C.card,
+                    borderRadius: 20,
+                    padding: 20,
+                    marginBottom: 28,
+                    borderWidth: 1,
+                    borderColor: C.border,
+                }}>
+                    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                            <View style={{
+                                width: 32, height: 32, borderRadius: 10,
+                                backgroundColor: C.accentMuted,
+                                alignItems: "center", justifyContent: "center",
+                            }}>
+                                <MaterialCommunityIcons name="fire" size={18} color={C.accent} />
+                            </View>
+                            <Text style={{ color: C.textMuted, fontSize: 12, fontWeight: "700", letterSpacing: 1, textTransform: "uppercase" }}>
+                                Today's Progress
+                            </Text>
+                        </View>
+                        <Text style={{ color: C.textDim, fontSize: 11, fontWeight: "600" }}>
+                            {mealsToday} meal{mealsToday !== 1 ? "s" : ""} logged
+                        </Text>
+                    </View>
+
+                    {/* Big calorie number */}
+                    <View style={{ alignItems: "center", marginBottom: 16 }}>
+                        <Text style={{ color: C.text, fontSize: 44, fontWeight: "900", letterSpacing: -1 }}>
+                            {caloriesLeft}
+                        </Text>
+                        <Text style={{ color: C.textMuted, fontSize: 13, fontWeight: "600", marginTop: 2 }}>
+                            calories remaining
+                        </Text>
+                    </View>
+
+                    {/* Progress bar */}
+                    <View style={{
+                        height: 8, borderRadius: 4,
+                        backgroundColor: C.cardElevated,
+                        marginBottom: 16,
+                        overflow: "hidden",
+                    }}>
+                        <View style={{
+                            height: "100%",
+                            borderRadius: 4,
+                            width: `${Math.round(calProgress * 100)}%`,
+                            backgroundColor: calProgress > 0.9 ? C.danger : C.accent,
+                        }} />
+                    </View>
+
+                    {/* Stats row */}
+                    <View style={{ flexDirection: "row", gap: 12 }}>
+                        <View style={{
+                            flex: 1, backgroundColor: C.cardElevated,
+                            borderRadius: 12, padding: 12, alignItems: "center",
+                        }}>
+                            <Text style={{ color: C.accent, fontSize: 18, fontWeight: "800" }}>{caloriesEaten}</Text>
+                            <Text style={{ color: C.textDim, fontSize: 11, fontWeight: "600", marginTop: 2 }}>eaten</Text>
+                        </View>
+                        <View style={{
+                            flex: 1, backgroundColor: C.cardElevated,
+                            borderRadius: 12, padding: 12, alignItems: "center",
+                        }}>
+                            <Text style={{ color: C.text, fontSize: 18, fontWeight: "800" }}>{config.calories}</Text>
+                            <Text style={{ color: C.textDim, fontSize: 11, fontWeight: "600", marginTop: 2 }}>target</Text>
+                        </View>
+                        <View style={{
+                            flex: 1, backgroundColor: C.cardElevated,
+                            borderRadius: 12, padding: 12, alignItems: "center",
+                        }}>
+                            <Text style={{ color: C.success, fontSize: 18, fontWeight: "800" }}>{proteinLeft}g</Text>
+                            <Text style={{ color: C.textDim, fontSize: 11, fontWeight: "600", marginTop: 2 }}>protein left</Text>
+                        </View>
+                    </View>
                 </View>
 
                 {/* Fasting Track */}
