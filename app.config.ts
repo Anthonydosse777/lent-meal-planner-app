@@ -40,6 +40,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         openaiApiKey: process.env.OPENAI_API_KEY,
         anthropicApiKey: process.env.ANTHROPIC_API_KEY,
         defaultProvider: process.env.DEFAULT_AI_PROVIDER ?? "openai",
+        usdaApiKey: process.env.EXPO_PUBLIC_USDA_API_KEY,
         eas: {
             projectId: "your-eas-project-id",
         },

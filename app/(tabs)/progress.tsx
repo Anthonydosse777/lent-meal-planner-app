@@ -1,7 +1,7 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import {
     View, Text, ScrollView, TouchableOpacity, TextInput,
-    useColorScheme, Platform, Alert, Image,
+    useColorScheme, Platform, Alert, Image, ActivityIndicator,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect } from "expo-router";
@@ -13,6 +13,7 @@ import {
     type LoggedMeal, type WeightEntry,
 } from "../../lib/storage";
 import { useStore } from "../../lib/store";
+import { searchFoods, type USDAFood } from "../../lib/usda";
 
 type Tab = "nutrition" | "weight";
 
@@ -32,6 +33,40 @@ export default function ProgressScreen() {
     const [customCalories, setCustomCalories] = useState("");
     const [savingMeal, setSavingMeal] = useState(false);
     const [showCustomForm, setShowCustomForm] = useState(false);
+
+    // Food items logger
+    const [foodItems, setFoodItems] = useState<{ name: string; grams: string; nutrition: { calories: number; protein: number; carbs: number; fat: number; fiber: number } | null }[]>([]);
+    const [showFoodForm, setShowFoodForm] = useState(false);
+    const [foodSearch, setFoodSearch] = useState("");
+    const [selectedFoodIdx, setSelectedFoodIdx] = useState<number | null>(null);
+
+    // USDA search state
+    const [usdaResults, setUsdaResults] = useState<USDAFood[]>([]);
+    const [usdaLoading, setUsdaLoading] = useState(false);
+    const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    // Debounced USDA search
+    useEffect(() => {
+        if (searchTimer.current) clearTimeout(searchTimer.current);
+        if (!foodSearch.trim()) {
+            setUsdaResults([]);
+            return;
+        }
+        setUsdaLoading(true);
+        searchTimer.current = setTimeout(async () => {
+            try {
+                const results = await searchFoods(foodSearch);
+                setUsdaResults(results);
+            } catch {
+                setUsdaResults([]);
+            } finally {
+                setUsdaLoading(false);
+            }
+        }, 400);
+        return () => {
+            if (searchTimer.current) clearTimeout(searchTimer.current);
+        };
+    }, [foodSearch]);
 
     // Reload whenever tab becomes active
     useFocusEffect(
@@ -70,6 +105,81 @@ export default function ProgressScreen() {
         setCustomMealTitle("");
         setCustomCalories("");
         setShowCustomForm(false);
+        await load();
+        setSavingMeal(false);
+    }
+
+    function addFoodItem(food: USDAFood) {
+        setFoodItems([...foodItems, { name: food.description, grams: "", nutrition: food.per100g }]);
+        setFoodSearch("");
+        setUsdaResults([]);
+        setSelectedFoodIdx(null);
+    }
+
+    function addCustomFoodItem() {
+        const name = foodSearch.trim() || "Custom Food";
+        setFoodItems([...foodItems, { name, grams: "", nutrition: null }]);
+        setFoodSearch("");
+        setUsdaResults([]);
+    }
+
+    function updateFoodGrams(idx: number, grams: string) {
+        const updated = [...foodItems];
+        updated[idx].grams = grams;
+        setFoodItems(updated);
+    }
+
+    function removeFoodItem(idx: number) {
+        setFoodItems(foodItems.filter((_, i) => i !== idx));
+    }
+
+    function getFoodItemNutrition(item: typeof foodItems[0]) {
+        const g = parseFloat(item.grams) || 0;
+        if (!item.nutrition || g <= 0) return { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 };
+        const scale = g / 100;
+        return {
+            calories: Math.round(item.nutrition.calories * scale),
+            protein: Math.round(item.nutrition.protein * scale * 10) / 10,
+            carbs: Math.round(item.nutrition.carbs * scale * 10) / 10,
+            fat: Math.round(item.nutrition.fat * scale * 10) / 10,
+            fiber: Math.round(item.nutrition.fiber * scale * 10) / 10,
+        };
+    }
+
+    const foodTotals = foodItems.reduce(
+        (acc, item) => {
+            const n = getFoodItemNutrition(item);
+            return {
+                calories: acc.calories + n.calories,
+                protein: acc.protein + n.protein,
+                carbs: acc.carbs + n.carbs,
+                fat: acc.fat + n.fat,
+                fiber: acc.fiber + n.fiber,
+            };
+        },
+        { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 }
+    );
+
+    async function handleSaveFoodItems() {
+        if (foodItems.length === 0) return;
+        const validItems = foodItems.filter((item) => parseFloat(item.grams) > 0);
+        if (validItems.length === 0) return;
+        setSavingMeal(true);
+        const title = validItems.map((item) => `${item.name} ${item.grams}g`).join(", ");
+        await logMeal({
+            id: Math.random().toString(36).slice(2, 10),
+            title,
+            source: "Custom Foods",
+            totalNutrition: {
+                calories: Math.round(foodTotals.calories),
+                protein: Math.round(foodTotals.protein),
+                carbs: Math.round(foodTotals.carbs),
+                fat: Math.round(foodTotals.fat),
+                fiber: Math.round(foodTotals.fiber),
+            },
+        });
+        setFoodItems([]);
+        setShowFoodForm(false);
         await load();
         setSavingMeal(false);
     }
@@ -168,76 +278,274 @@ export default function ProgressScreen() {
             >
                 {tab === "nutrition" ? (
                     <>
-                        {/* Custom Meal Form */}
+                        {/* Log Food Items */}
                         <View style={{
                             backgroundColor: C.card, borderRadius: 20, borderWidth: 1,
                             borderColor: C.border, padding: 16, marginBottom: 20,
                         }}>
                             <TouchableOpacity
-                                onPress={() => setShowCustomForm(!showCustomForm)}
+                                onPress={() => setShowFoodForm(!showFoodForm)}
                                 activeOpacity={0.7}
                                 style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}
                             >
-                                <Text style={{ color: C.text, fontSize: 14, fontWeight: "700" }}>
-                                    Log Custom Meal / Calories
-                                </Text>
+                                <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                                    <View style={{
+                                        width: 32, height: 32, borderRadius: 10,
+                                        backgroundColor: C.accentMuted,
+                                        alignItems: "center", justifyContent: "center",
+                                    }}>
+                                        <MaterialCommunityIcons name="plus-circle-outline" size={18} color={C.accent} />
+                                    </View>
+                                    <Text style={{ color: C.text, fontSize: 14, fontWeight: "700" }}>
+                                        Log What You Ate
+                                    </Text>
+                                </View>
                                 <MaterialCommunityIcons
-                                    name={showCustomForm ? "chevron-up" : "chevron-down"}
+                                    name={showFoodForm ? "chevron-up" : "chevron-down"}
                                     size={20}
                                     color={C.textMuted}
                                 />
                             </TouchableOpacity>
 
-                            {showCustomForm && (
-                                <View style={{ marginTop: 16, gap: 12 }}>
-                                    <View style={{ flexDirection: "row", gap: 10 }}>
-                                        <TextInput
-                                            value={customMealTitle}
-                                            onChangeText={setCustomMealTitle}
-                                            placeholder="Meal name (e.g. Snack)"
-                                            placeholderTextColor={C.textDim}
-                                            style={{
-                                                flex: 2,
+                            {showFoodForm && (
+                                <View style={{ marginTop: 16 }}>
+                                    {/* Search / add food */}
+                                    <View style={{ position: "relative", zIndex: 10 }}>
+                                        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                                            <View style={{ flex: 1, position: "relative" }}>
+                                                <View style={{ position: "absolute", left: 12, top: 11, zIndex: 1 }}>
+                                                    <MaterialCommunityIcons name="magnify" size={18} color={C.textDim} />
+                                                </View>
+                                                <TextInput
+                                                    value={foodSearch}
+                                                    onChangeText={setFoodSearch}
+                                                    placeholder="Search USDA database..."
+                                                    placeholderTextColor={C.textDim}
+                                                    style={{
+                                                        backgroundColor: C.cardElevated,
+                                                        borderWidth: 1.5, borderColor: C.border,
+                                                        borderRadius: 12, paddingHorizontal: 14, paddingLeft: 36,
+                                                        paddingVertical: Platform.OS === "ios" ? 11 : 9,
+                                                        color: C.text, fontSize: 14, fontWeight: "600",
+                                                    }}
+                                                />
+                                            </View>
+                                            {foodSearch.trim().length > 0 && (
+                                                <TouchableOpacity
+                                                    onPress={addCustomFoodItem}
+                                                    activeOpacity={0.7}
+                                                    style={{
+                                                        backgroundColor: C.cardElevated,
+                                                        borderWidth: 1.5, borderColor: C.border,
+                                                        borderRadius: 12, paddingHorizontal: 14,
+                                                        paddingVertical: Platform.OS === "ios" ? 11 : 9,
+                                                    }}
+                                                >
+                                                    <MaterialCommunityIcons name="plus" size={18} color={C.accent} />
+                                                </TouchableOpacity>
+                                            )}
+                                        </View>
+
+                                        {/* Search results dropdown */}
+                                        {(usdaResults.length > 0 || usdaLoading) && foodSearch.trim().length > 0 && (
+                                            <View style={{
+                                                position: "absolute", top: "100%", left: 0, right: 0,
                                                 backgroundColor: C.cardElevated,
-                                                borderWidth: 1.5, borderColor: C.border,
-                                                borderRadius: 12, paddingHorizontal: 14,
-                                                paddingVertical: Platform.OS === "ios" ? 12 : 10,
-                                                color: C.text, fontSize: 15, fontWeight: "600",
-                                            }}
-                                        />
-                                        <TextInput
-                                            value={customCalories}
-                                            onChangeText={setCustomCalories}
-                                            placeholder="Calories"
-                                            placeholderTextColor={C.textDim}
-                                            keyboardType="numeric"
-                                            style={{
-                                                flex: 1,
-                                                backgroundColor: C.cardElevated,
-                                                borderWidth: 1.5, borderColor: C.border,
-                                                borderRadius: 12, paddingHorizontal: 14,
-                                                paddingVertical: Platform.OS === "ios" ? 12 : 10,
-                                                color: C.text, fontSize: 15, fontWeight: "600",
-                                            }}
-                                        />
+                                                borderRadius: 12, marginTop: 4,
+                                                borderWidth: 1, borderColor: C.border,
+                                                overflow: "hidden",
+                                                ...(Platform.OS === "web" ? { zIndex: 100 } : {}),
+                                            }}>
+                                                {usdaLoading && usdaResults.length === 0 ? (
+                                                    <View style={{ padding: 14, alignItems: "center" }}>
+                                                        <ActivityIndicator size="small" color={C.accent} />
+                                                        <Text style={{ color: C.textDim, fontSize: 12, marginTop: 6 }}>
+                                                            Searching USDA database...
+                                                        </Text>
+                                                    </View>
+                                                ) : (
+                                                    usdaResults.map((food, i) => (
+                                                        <TouchableOpacity
+                                                            key={food.fdcId}
+                                                            onPress={() => addFoodItem(food)}
+                                                            activeOpacity={0.7}
+                                                            style={{
+                                                                paddingHorizontal: 14, paddingVertical: 11,
+                                                                borderBottomWidth: i < usdaResults.length - 1 ? 1 : 0,
+                                                                borderBottomColor: C.borderFaint,
+                                                            }}
+                                                        >
+                                                            <Text style={{ color: C.text, fontSize: 13, fontWeight: "600" }} numberOfLines={1}>
+                                                                {food.description}
+                                                            </Text>
+                                                            <Text style={{ color: C.textDim, fontSize: 11, marginTop: 2 }}>
+                                                                {food.per100g.calories} cal · {food.per100g.protein}g P · {food.per100g.carbs}g C · {food.per100g.fat}g F / 100g
+                                                            </Text>
+                                                        </TouchableOpacity>
+                                                    ))
+                                                )}
+                                            </View>
+                                        )}
                                     </View>
+
+                                    {/* Added food items */}
+                                    {foodItems.length > 0 && (
+                                        <View style={{ marginTop: 14, gap: 8 }}>
+                                            {foodItems.map((item, idx) => {
+                                                const n = getFoodItemNutrition(item);
+                                                return (
+                                                    <View key={idx} style={{
+                                                        backgroundColor: C.cardElevated,
+                                                        borderRadius: 14, padding: 12,
+                                                        borderWidth: 1, borderColor: C.borderFaint,
+                                                    }}>
+                                                        <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                                                            <View style={{ flex: 1 }}>
+                                                                <Text style={{ color: C.text, fontSize: 13, fontWeight: "700" }}>
+                                                                    {item.name}
+                                                                </Text>
+                                                                {!item.nutrition && (
+                                                                    <Text style={{ color: C.danger, fontSize: 10, marginTop: 2 }}>
+                                                                        Custom entry — calories won't auto-calculate
+                                                                    </Text>
+                                                                )}
+                                                            </View>
+                                                            <TextInput
+                                                                value={item.grams}
+                                                                onChangeText={(v) => updateFoodGrams(idx, v)}
+                                                                placeholder="grams"
+                                                                placeholderTextColor={C.textDim}
+                                                                keyboardType="numeric"
+                                                                style={{
+                                                                    width: 80,
+                                                                    backgroundColor: C.card,
+                                                                    borderWidth: 1.5, borderColor: C.border,
+                                                                    borderRadius: 10, paddingHorizontal: 10,
+                                                                    paddingVertical: 6,
+                                                                    color: C.text, fontSize: 14, fontWeight: "700",
+                                                                    textAlign: "center",
+                                                                }}
+                                                            />
+                                                            <Text style={{ color: C.textMuted, fontSize: 12, fontWeight: "600" }}>g</Text>
+                                                            <TouchableOpacity onPress={() => removeFoodItem(idx)} hitSlop={8}>
+                                                                <MaterialCommunityIcons name="close-circle" size={18} color={C.textDim} />
+                                                            </TouchableOpacity>
+                                                        </View>
+                                                        {item.nutrition && parseFloat(item.grams) > 0 && (
+                                                            <View style={{
+                                                                flexDirection: "row", gap: 12, marginTop: 8,
+                                                                paddingTop: 8, borderTopWidth: 1, borderTopColor: C.borderFaint,
+                                                            }}>
+                                                                <Text style={{ color: C.accent, fontSize: 11, fontWeight: "700" }}>{n.calories} cal</Text>
+                                                                <Text style={{ color: C.success, fontSize: 11, fontWeight: "600" }}>{n.protein}g P</Text>
+                                                                <Text style={{ color: "#60a5fa", fontSize: 11, fontWeight: "600" }}>{n.carbs}g C</Text>
+                                                                <Text style={{ color: C.textMuted, fontSize: 11, fontWeight: "600" }}>{n.fat}g F</Text>
+                                                            </View>
+                                                        )}
+                                                    </View>
+                                                );
+                                            })}
+
+                                            {/* Totals */}
+                                            {foodTotals.calories > 0 && (
+                                                <View style={{
+                                                    flexDirection: "row", justifyContent: "space-between",
+                                                    backgroundColor: C.accentMuted, borderRadius: 12, padding: 12,
+                                                    borderWidth: 1, borderColor: C.accent + "30",
+                                                }}>
+                                                    <Text style={{ color: C.accent, fontSize: 13, fontWeight: "800" }}>Total</Text>
+                                                    <View style={{ flexDirection: "row", gap: 12 }}>
+                                                        <Text style={{ color: C.accent, fontSize: 12, fontWeight: "700" }}>{Math.round(foodTotals.calories)} cal</Text>
+                                                        <Text style={{ color: C.success, fontSize: 12, fontWeight: "600" }}>{Math.round(foodTotals.protein)}g P</Text>
+                                                        <Text style={{ color: "#60a5fa", fontSize: 12, fontWeight: "600" }}>{Math.round(foodTotals.carbs)}g C</Text>
+                                                        <Text style={{ color: C.textMuted, fontSize: 12, fontWeight: "600" }}>{Math.round(foodTotals.fat)}g F</Text>
+                                                    </View>
+                                                </View>
+                                            )}
+
+                                            {/* Save button */}
+                                            <TouchableOpacity
+                                                onPress={handleSaveFoodItems}
+                                                disabled={savingMeal || foodItems.every((i) => !parseFloat(i.grams))}
+                                                activeOpacity={0.7}
+                                                style={{
+                                                    paddingVertical: 13, borderRadius: 14,
+                                                    backgroundColor: foodItems.some((i) => parseFloat(i.grams) > 0) ? C.accent : C.cardElevated,
+                                                    alignItems: "center",
+                                                }}
+                                            >
+                                                <Text style={{
+                                                    color: foodItems.some((i) => parseFloat(i.grams) > 0) ? C.background : C.textDim,
+                                                    fontWeight: "800", fontSize: 14,
+                                                }}>
+                                                    {savingMeal ? "Saving..." : "Log This Meal"}
+                                                </Text>
+                                            </TouchableOpacity>
+                                        </View>
+                                    )}
+
+                                    {/* Quick-add calories only (collapsed) */}
                                     <TouchableOpacity
-                                        onPress={handleSaveCustomMeal}
-                                        disabled={(!customMealTitle && !customCalories) || savingMeal}
-                                        activeOpacity={0.7}
-                                        style={{
-                                            paddingVertical: 12, borderRadius: 12,
-                                            backgroundColor: (customMealTitle || customCalories) ? C.accent : C.cardElevated,
-                                            alignItems: "center", justifyContent: "center",
-                                        }}
+                                        onPress={() => setShowCustomForm(!showCustomForm)}
+                                        style={{ marginTop: 14, alignItems: "center" }}
                                     >
-                                        <Text style={{
-                                            color: (customMealTitle || customCalories) ? C.background : C.textDim,
-                                            fontWeight: "800", fontSize: 14,
-                                        }}>
-                                            Save Custom Entry
+                                        <Text style={{ color: C.textMuted, fontSize: 12, fontWeight: "600" }}>
+                                            {showCustomForm ? "Hide quick calorie entry" : "Or just log calories manually"}
                                         </Text>
                                     </TouchableOpacity>
+
+                                    {showCustomForm && (
+                                        <View style={{ marginTop: 10, gap: 10 }}>
+                                            <View style={{ flexDirection: "row", gap: 10 }}>
+                                                <TextInput
+                                                    value={customMealTitle}
+                                                    onChangeText={setCustomMealTitle}
+                                                    placeholder="Meal name"
+                                                    placeholderTextColor={C.textDim}
+                                                    style={{
+                                                        flex: 2,
+                                                        backgroundColor: C.cardElevated,
+                                                        borderWidth: 1.5, borderColor: C.border,
+                                                        borderRadius: 12, paddingHorizontal: 14,
+                                                        paddingVertical: Platform.OS === "ios" ? 10 : 8,
+                                                        color: C.text, fontSize: 14, fontWeight: "600",
+                                                    }}
+                                                />
+                                                <TextInput
+                                                    value={customCalories}
+                                                    onChangeText={setCustomCalories}
+                                                    placeholder="Calories"
+                                                    placeholderTextColor={C.textDim}
+                                                    keyboardType="numeric"
+                                                    style={{
+                                                        flex: 1,
+                                                        backgroundColor: C.cardElevated,
+                                                        borderWidth: 1.5, borderColor: C.border,
+                                                        borderRadius: 12, paddingHorizontal: 14,
+                                                        paddingVertical: Platform.OS === "ios" ? 10 : 8,
+                                                        color: C.text, fontSize: 14, fontWeight: "600",
+                                                    }}
+                                                />
+                                            </View>
+                                            <TouchableOpacity
+                                                onPress={handleSaveCustomMeal}
+                                                disabled={(!customMealTitle && !customCalories) || savingMeal}
+                                                activeOpacity={0.7}
+                                                style={{
+                                                    paddingVertical: 11, borderRadius: 12,
+                                                    backgroundColor: (customMealTitle || customCalories) ? C.accent : C.cardElevated,
+                                                    alignItems: "center",
+                                                }}
+                                            >
+                                                <Text style={{
+                                                    color: (customMealTitle || customCalories) ? C.background : C.textDim,
+                                                    fontWeight: "800", fontSize: 14,
+                                                }}>
+                                                    Save Quick Entry
+                                                </Text>
+                                            </TouchableOpacity>
+                                        </View>
+                                    )}
                                 </View>
                             )}
                         </View>
