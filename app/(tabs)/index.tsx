@@ -402,7 +402,7 @@ function NumberField({
             </Text>
             <TextInput
                 value={String(value)}
-                onChangeText={(t) => { const n = parseInt(t, 10); if (!isNaN(n)) onChange(n); }}
+                onChangeText={(t) => { onChange(parseInt(t, 10) || 0); }}
                 keyboardType="numeric"
                 style={{
                     backgroundColor: C.card,
