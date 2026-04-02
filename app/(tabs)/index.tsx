@@ -395,14 +395,30 @@ function NumberField({
     onChange: (v: number) => void;
     C: (typeof Colors)["dark"];
 }) {
+    const [text, setText] = useState(String(value));
+
     return (
         <View style={{ flex: 1 }}>
             <Text style={{ color: C.textMuted, fontSize: 11, fontWeight: "700", letterSpacing: 0.8, marginBottom: 6 }}>
                 {label}
             </Text>
             <TextInput
-                value={String(value)}
-                onChangeText={(t) => { onChange(parseInt(t, 10) || 0); }}
+                value={text}
+                onChangeText={(t) => {
+                    const cleaned = t.replace(/[^0-9]/g, "");
+                    setText(cleaned);
+                    const n = parseInt(cleaned, 10);
+                    if (!isNaN(n)) onChange(n);
+                }}
+                onBlur={() => {
+                    const n = parseInt(text, 10);
+                    if (isNaN(n) || n <= 0) {
+                        setText(String(value));
+                    } else {
+                        setText(String(n));
+                        onChange(n);
+                    }
+                }}
                 keyboardType="numeric"
                 style={{
                     backgroundColor: C.card,
