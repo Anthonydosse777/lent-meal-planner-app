@@ -12,7 +12,7 @@ import {
     lastNDates, formatDate, todayDate, logMeal,
     type LoggedMeal, type WeightEntry,
 } from "../../lib/storage";
-import { useStore } from "../../lib/store";
+import { useStore, getDayCalorieGoal, getWeeklyCalorieTotal } from "../../lib/store";
 import { searchFoods, type USDAFood } from "../../lib/usda";
 
 type Tab = "nutrition" | "weight";
@@ -227,7 +227,11 @@ export default function ProgressScreen() {
         calories: mealsByDate[d].reduce((s, m) => s + m.meal.totalNutrition.calories, 0),
         meals: mealsByDate[d],
     }));
-    const maxCal = Math.max(...dailyCalories.map((d) => d.calories), config.calories, 1);
+    const maxCal = Math.max(
+        ...dailyCalories.map((d) => d.calories),
+        ...config.weeklyCalories,
+        1,
+    );
 
     // Weight trend — last 10 entries
     const recentWeights = weightEntries.slice(-10);
@@ -552,7 +556,7 @@ export default function ProgressScreen() {
 
                         {/* Weekly summary cards */}
                         <View style={{ flexDirection: "row", gap: 8, marginBottom: 20 }}>
-                            <WeekSummaryCard label="Calories" value={weeklyTotals.calories} unit="kcal" target={config.calories * 7} C={C} color={C.accent} />
+                            <WeekSummaryCard label="Calories" value={weeklyTotals.calories} unit="kcal" target={getWeeklyCalorieTotal(config)} C={C} color={C.accent} />
                             <WeekSummaryCard label="Protein" value={weeklyTotals.protein} unit="g" target={config.protein * 7} C={C} color={C.success} />
                         </View>
                         <View style={{ flexDirection: "row", gap: 8, marginBottom: 20 }}>
@@ -593,7 +597,7 @@ export default function ProgressScreen() {
                             <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 10 }}>
                                 <View style={{ width: 12, height: 2, backgroundColor: C.accent, borderRadius: 1 }} />
                                 <Text style={{ color: C.textMuted, fontSize: 11 }}>
-                                    Target: {config.calories} kcal/day
+                                    Target: {getDayCalorieGoal(config)} kcal today
                                 </Text>
                             </View>
                         </View>
