@@ -3,7 +3,7 @@ import { View, Text, ScrollView, TouchableOpacity, useColorScheme } from "react-
 import { SafeAreaView } from "react-native-safe-area-context";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { Colors } from "../../constants/Colors";
-import { useStore } from "../../lib/store";
+import { useStore, getDayCalorieGoal } from "../../lib/store";
 import { MealCard } from "../../components/MealCard";
 import { MealSkeleton } from "../../components/MealSkeleton";
 import { GroceryList } from "../../components/GroceryList";
@@ -55,7 +55,7 @@ export default function ResultsScreen() {
                         <SummaryPill
                             icon="fire"
                             label={`${totalNutrition.calories} kcal`}
-                            target={config.calories}
+                            target={getDayCalorieGoal(config)}
                             C={C}
                         />
                         <SummaryPill

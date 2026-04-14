@@ -8,7 +8,11 @@ import { useRouter } from "expo-router";
 import { useFocusEffect } from "expo-router";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { Colors } from "../../constants/Colors";
-import { useStore, setConfig, setState, type PlannerConfig } from "../../lib/store";
+import {
+    useStore, setConfig, setState, setWeeklyCalorieDay,
+    getDayCalorieGoal, DAY_LETTERS,
+    type PlannerConfig,
+} from "../../lib/store";
 import { fetchAiMeal } from "../../lib/api";
 import { generateMeal } from "../../lib/meal-logic";
 import { getLoggedMeals, todayDate } from "../../lib/storage";
@@ -50,15 +54,16 @@ export default function PlanScreen() {
         }, [])
     );
 
-    const caloriesLeft = Math.max(0, config.calories - caloriesEaten);
+    const todayGoal = getDayCalorieGoal(config);
+    const caloriesLeft = Math.max(0, todayGoal - caloriesEaten);
     const proteinLeft = Math.max(0, config.protein - proteinEaten);
-    const calProgress = config.calories > 0 ? Math.min(1, caloriesEaten / config.calories) : 0;
+    const calProgress = todayGoal > 0 ? Math.min(1, caloriesEaten / todayGoal) : 0;
 
     async function handleGenerate() {
-        const { protein, calories, strictness, mealsPerDay, mode, provider } = config;
+        const { protein, strictness, mealsPerDay, mode, provider } = config;
         const count = mode === "single" ? 1 : mealsPerDay;
         const proteinPerMeal = Math.round(protein / count);
-        const calPerMeal = Math.round(calories / count);
+        const calPerMeal = Math.round(todayGoal / count);
 
         setState({ meals: [], loadingSlots: Array(count).fill(true), error: null });
         router.navigate("/(tabs)/results");
@@ -173,7 +178,7 @@ export default function PlanScreen() {
                             flex: 1, backgroundColor: C.cardElevated,
                             borderRadius: 12, padding: 12, alignItems: "center",
                         }}>
-                            <Text style={{ color: C.text, fontSize: 18, fontWeight: "800" }}>{config.calories}</Text>
+                            <Text style={{ color: C.text, fontSize: 18, fontWeight: "800" }}>{todayGoal}</Text>
                             <Text style={{ color: C.textDim, fontSize: 11, fontWeight: "600", marginTop: 2 }}>target</Text>
                         </View>
                         <View style={{
@@ -232,20 +237,34 @@ export default function PlanScreen() {
 
                 {/* Nutrition targets */}
                 <SectionLabel label="Nutrition Targets" C={C} />
-                <View style={{ flexDirection: "row", gap: 12, marginBottom: 24 }}>
+                <View style={{ marginBottom: 16 }}>
                     <NumberField
                         label="Protein (g)"
                         value={config.protein}
                         onChange={(v) => setConfig({ protein: v })}
                         C={C}
                     />
-                    <NumberField
-                        label="Calories"
-                        value={config.calories}
-                        onChange={(v) => setConfig({ calories: v })}
-                        C={C}
-                    />
                 </View>
+
+                <SectionLabel label="Calorie Goal by Day" C={C} />
+                <View style={{ flexDirection: "row", gap: 6, marginBottom: 8 }}>
+                    {DAY_LETTERS.map((letter, i) => {
+                        const isToday = new Date().getDay() === i;
+                        return (
+                            <DayCalorieField
+                                key={i}
+                                letter={letter}
+                                value={config.weeklyCalories[i]}
+                                onChange={(v) => setWeeklyCalorieDay(i, v)}
+                                highlight={isToday}
+                                C={C}
+                            />
+                        );
+                    })}
+                </View>
+                <Text style={{ color: C.textDim, fontSize: 11, marginBottom: 24 }}>
+                    Saved automatically. Tap any day to edit.
+                </Text>
 
                 {/* Mode */}
                 <SectionLabel label="Generator Mode" C={C} />
@@ -397,6 +416,10 @@ function NumberField({
 }) {
     const [text, setText] = useState(String(value));
 
+    useEffect(() => {
+        setText(String(value));
+    }, [value]);
+
     return (
         <View style={{ flex: 1 }}>
             <Text style={{ color: C.textMuted, fontSize: 11, fontWeight: "700", letterSpacing: 0.8, marginBottom: 6 }}>
@@ -430,6 +453,69 @@ function NumberField({
                     color: C.text,
                     fontSize: 16,
                     fontWeight: "700",
+                }}
+                placeholderTextColor={C.textDim}
+            />
+        </View>
+    );
+}
+
+function DayCalorieField({
+    letter, value, onChange, highlight, C,
+}: {
+    letter: string;
+    value: number;
+    onChange: (v: number) => void;
+    highlight: boolean;
+    C: (typeof Colors)["dark"];
+}) {
+    const [text, setText] = useState(String(value));
+
+    useEffect(() => {
+        setText(String(value));
+    }, [value]);
+
+    return (
+        <View style={{ flex: 1, alignItems: "center" }}>
+            <Text style={{
+                color: highlight ? C.accent : C.textMuted,
+                fontSize: 11,
+                fontWeight: "800",
+                letterSpacing: 0.6,
+                marginBottom: 6,
+            }}>
+                {letter}
+            </Text>
+            <TextInput
+                value={text}
+                onChangeText={(t) => {
+                    const cleaned = t.replace(/[^0-9]/g, "").slice(0, 5);
+                    setText(cleaned);
+                    const n = parseInt(cleaned, 10);
+                    if (!isNaN(n)) onChange(n);
+                }}
+                onBlur={() => {
+                    const n = parseInt(text, 10);
+                    if (isNaN(n) || n <= 0) {
+                        setText(String(value));
+                    } else {
+                        setText(String(n));
+                        onChange(n);
+                    }
+                }}
+                keyboardType="numeric"
+                style={{
+                    width: "100%",
+                    backgroundColor: C.card,
+                    borderWidth: 1.5,
+                    borderColor: highlight ? C.accent : C.border,
+                    borderRadius: 10,
+                    paddingHorizontal: 4,
+                    paddingVertical: Platform.OS === "ios" ? 10 : 8,
+                    color: C.text,
+                    fontSize: 13,
+                    fontWeight: "700",
+                    textAlign: "center",
                 }}
                 placeholderTextColor={C.textDim}
             />
