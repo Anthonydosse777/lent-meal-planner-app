@@ -52,8 +52,8 @@ function getKeys(): { openaiKey: string | undefined; anthropicKey: string | unde
 function buildMealPrompt(strictness: string, targetProtein: number, targetCalories: number, existingTitles: string[]): string {
     const trackDesc: Record<string, string> = {
         straight_vegan: "strictly vegan — NO meat, NO fish, NO dairy, NO eggs. Only plant-based ingredients.",
-        vegan_fish: "vegan + fish allowed — NO meat, NO dairy, NO eggs. Fish and seafood are permitted.",
-        unrestricted: "no dietary restrictions — any ingredients allowed including meat, dairy, and eggs.",
+        vegan_fish: "pescatarian — NO meat, NO dairy, NO eggs. You MUST include fish or seafood (such as salmon, tilapia, shrimp, tuna, sardines, or calamari) as a main protein source in this meal. Do NOT make a fully vegan meal.",
+        unrestricted: "unrestricted — you MUST include animal protein such as chicken, beef, lamb, eggs, or dairy. Do NOT make a vegan or vegetarian meal. Include meat, poultry, eggs, or dairy as the main component.",
     };
 
     const avoid = existingTitles.length > 0
@@ -62,7 +62,12 @@ function buildMealPrompt(strictness: string, targetProtein: number, targetCalori
 
     return `You are a nutritionist specializing in Coptic Orthodox fasting meal planning.
 Generate ONE unique, creative, and delicious meal that is ${trackDesc[strictness] ?? "vegan"}.
-Target approximately ${targetProtein}g of protein and ${targetCalories} calories.
+
+CRITICAL NUTRITION REQUIREMENTS — the meal MUST hit these targets:
+- Protein: exactly ${targetProtein}g (within ±5g)
+- Calories: exactly ${targetCalories} calories (within ±50)
+
+Use realistic portion sizes and enough ingredients to actually reach these numbers. If needed, use larger servings, add protein-rich sides (beans, lentils, tofu, seitan, nuts), or increase portions. Do NOT return a meal that falls short of the targets.
 ${avoid}
 
 Vary the cuisine widely — Egyptian, Mediterranean, Middle Eastern, Asian, Mexican, Ethiopian, etc.
@@ -77,7 +82,7 @@ Respond ONLY with a valid JSON object (no markdown, no explanation):
   "prepTime": 10,
   "cookTime": 20,
   "tags": ["Tag1", "Tag2"],
-  "estimatedNutrition": { "calories": 450, "protein": 28, "carbs": 55, "fiber": 12, "fat": 10 },
+  "estimatedNutrition": { "calories": ${targetCalories}, "protein": ${targetProtein}, "carbs": 55, "fiber": 12, "fat": 10 },
   "imageQuery": "keyword1+keyword2"
 }`;
 }
