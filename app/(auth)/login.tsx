@@ -191,20 +191,15 @@ export default function LoginScreen() {
         }
         setLoading(true);
         try {
-            const { error: verifyError } = await supabase.auth.verifyOtp({
+            const { data, error: verifyError } = await supabase.auth.verifyOtp({
                 email: email.trim(),
                 token: verificationCode.trim(),
-                type: 'signup',
+                type: 'email',
             });
             if (verifyError) {
                 Alert.alert('Verification Failed', verifyError.message);
-            } else {
-                // Email confirmed — now sign in with their credentials
-                const { error: signInError } = await supabase.auth.signInWithPassword({
-                    email: email.trim(),
-                    password,
-                });
-                if (signInError) Alert.alert('Sign In Failed', signInError.message);
+            } else if (!data.session) {
+                Alert.alert('Verification Failed', 'Could not confirm email. Please try again.');
             }
         } catch (e: any) {
             Alert.alert('Error', e.message ?? 'Something went wrong.');
