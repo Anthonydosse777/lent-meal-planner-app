@@ -30,6 +30,8 @@ export default function LoginScreen() {
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
+    const [verifyEmail, setVerifyEmail] = useState(false);
+    const [verificationCode, setVerificationCode] = useState('');
 
     // Focus states for premium input styling
     const [focusedField, setFocusedField] = useState<string | null>(null);
@@ -174,8 +176,51 @@ export default function LoginScreen() {
                     options: { data: { full_name: name.trim() } },
                 });
                 if (error) Alert.alert('Sign Up Failed', error.message);
-                else Alert.alert('Check your email!', 'A confirmation link has been sent.');
+                else setVerifyEmail(true);
             }
+        } catch (e: any) {
+            Alert.alert('Error', e.message ?? 'Something went wrong.');
+        }
+        setLoading(false);
+    }
+
+    async function handleVerifyCode() {
+        if (!verificationCode.trim()) {
+            Alert.alert('Missing Code', 'Please enter the 6-digit code from your email.');
+            return;
+        }
+        setLoading(true);
+        try {
+            const { error: verifyError } = await supabase.auth.verifyOtp({
+                email: email.trim(),
+                token: verificationCode.trim(),
+                type: 'signup',
+            });
+            if (verifyError) {
+                Alert.alert('Verification Failed', verifyError.message);
+            } else {
+                // Email confirmed — now sign in with their credentials
+                const { error: signInError } = await supabase.auth.signInWithPassword({
+                    email: email.trim(),
+                    password,
+                });
+                if (signInError) Alert.alert('Sign In Failed', signInError.message);
+            }
+        } catch (e: any) {
+            Alert.alert('Error', e.message ?? 'Something went wrong.');
+        }
+        setLoading(false);
+    }
+
+    async function handleResendCode() {
+        setLoading(true);
+        try {
+            const { error } = await supabase.auth.resend({
+                type: 'signup',
+                email: email.trim(),
+            });
+            if (error) Alert.alert('Resend Failed', error.message);
+            else Alert.alert('Code Sent', 'A new confirmation code has been sent to your email.');
         } catch (e: any) {
             Alert.alert('Error', e.message ?? 'Something went wrong.');
         }
@@ -184,6 +229,8 @@ export default function LoginScreen() {
 
     function toggleMode() {
         setMode(mode === 'login' ? 'signup' : 'login');
+        setVerifyEmail(false);
+        setVerificationCode('');
     }
 
     const inputStyle = (field: string) => ({
@@ -328,190 +375,298 @@ export default function LoginScreen() {
                             transform: [{ translateY: formSlide }],
                         }}
                     >
-                        {/* Mode toggle pills */}
-                        <View
-                            style={{
-                                flexDirection: 'row',
-                                backgroundColor: C.card,
-                                borderRadius: 14,
-                                padding: 4,
-                                marginBottom: 24,
-                                borderWidth: 1,
-                                borderColor: C.borderFaint,
-                            }}
-                        >
-                            <TouchableOpacity
-                                onPress={() => setMode('login')}
-                                style={{
-                                    flex: 1,
-                                    paddingVertical: 12,
-                                    borderRadius: 11,
-                                    alignItems: 'center',
-                                    backgroundColor: mode === 'login' ? C.accent : 'transparent',
-                                }}
-                            >
-                                <Text
-                                    style={{
-                                        fontWeight: '700',
-                                        fontSize: 14,
-                                        color: mode === 'login' ? C.background : C.textMuted,
-                                    }}
-                                >
-                                    Sign In
-                                </Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                                onPress={() => setMode('signup')}
-                                style={{
-                                    flex: 1,
-                                    paddingVertical: 12,
-                                    borderRadius: 11,
-                                    alignItems: 'center',
-                                    backgroundColor: mode === 'signup' ? C.accent : 'transparent',
-                                }}
-                            >
-                                <Text
-                                    style={{
-                                        fontWeight: '700',
-                                        fontSize: 14,
-                                        color: mode === 'signup' ? C.background : C.textMuted,
-                                    }}
-                                >
-                                    Sign Up
-                                </Text>
-                            </TouchableOpacity>
-                        </View>
+                        {verifyEmail ? (
+                            /* ── OTP Verification Screen ── */
+                            <View>
+                                <View style={{ alignItems: 'center', marginBottom: 28 }}>
+                                    <View
+                                        style={{
+                                            width: 64,
+                                            height: 64,
+                                            borderRadius: 20,
+                                            backgroundColor: C.accentMuted,
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            marginBottom: 16,
+                                            borderWidth: 1,
+                                            borderColor: C.accent + '40',
+                                        }}
+                                    >
+                                        <MaterialCommunityIcons name="email-check-outline" size={32} color={C.accent} />
+                                    </View>
+                                    <Text style={{ color: C.text, fontSize: 22, fontWeight: '800', marginBottom: 8 }}>
+                                        Check your email
+                                    </Text>
+                                    <Text style={{ color: C.textMuted, fontSize: 14, textAlign: 'center', lineHeight: 20 }}>
+                                        We sent a 6-digit verification code to{'\n'}
+                                        <Text style={{ color: C.accent, fontWeight: '600' }}>{email.trim()}</Text>
+                                    </Text>
+                                </View>
 
-                        <View style={{ gap: 14 }}>
-                            {/* Name field — only in signup mode */}
-                            {mode === 'signup' && (
-                                <Animated.View style={{ opacity: nameHeight }}>
+                                <View style={{ gap: 14 }}>
                                     <View style={{ position: 'relative' }}>
                                         <View style={{ position: 'absolute', left: 16, top: 16, zIndex: 1 }}>
-                                            <MaterialCommunityIcons name="account-outline" size={20} color={focusedField === 'name' ? C.accent : C.textDim} />
+                                            <MaterialCommunityIcons name="shield-key-outline" size={20} color={focusedField === 'code' ? C.accent : C.textDim} />
                                         </View>
                                         <TextInput
-                                            value={name}
-                                            onChangeText={setName}
-                                            placeholder="Full Name"
+                                            value={verificationCode}
+                                            onChangeText={setVerificationCode}
+                                            placeholder="Enter 6-digit code"
                                             placeholderTextColor={C.textDim}
-                                            autoCapitalize="words"
-                                            onFocus={() => setFocusedField('name')}
+                                            keyboardType="number-pad"
+                                            maxLength={6}
+                                            autoFocus
+                                            onFocus={() => setFocusedField('code')}
                                             onBlur={() => setFocusedField(null)}
                                             style={{
-                                                ...inputStyle('name'),
+                                                ...inputStyle('code'),
+                                                paddingLeft: 44,
+                                                fontSize: 22,
+                                                letterSpacing: 8,
+                                                textAlign: 'center',
+                                            }}
+                                        />
+                                    </View>
+
+                                    <TouchableOpacity
+                                        onPress={handleVerifyCode}
+                                        disabled={loading}
+                                        activeOpacity={0.85}
+                                        style={{
+                                            backgroundColor: C.accent,
+                                            padding: 17,
+                                            borderRadius: 16,
+                                            alignItems: 'center',
+                                            marginTop: 6,
+                                            shadowColor: C.accent,
+                                            shadowOffset: { width: 0, height: 4 },
+                                            shadowOpacity: 0.3,
+                                            shadowRadius: 12,
+                                            elevation: 6,
+                                        }}
+                                    >
+                                        {loading ? (
+                                            <ActivityIndicator color={C.background} />
+                                        ) : (
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                                                <Text style={{ color: C.background, fontWeight: '800', fontSize: 16, letterSpacing: 0.3 }}>
+                                                    Verify Email
+                                                </Text>
+                                                <MaterialCommunityIcons name="check-circle-outline" size={18} color={C.background} />
+                                            </View>
+                                        )}
+                                    </TouchableOpacity>
+                                </View>
+
+                                <TouchableOpacity
+                                    onPress={handleResendCode}
+                                    disabled={loading}
+                                    style={{ marginTop: 20, alignItems: 'center' }}
+                                >
+                                    <Text style={{ color: C.textMuted, fontSize: 14 }}>
+                                        Didn't get the code?{' '}
+                                        <Text style={{ color: C.accent, fontWeight: '700' }}>Resend</Text>
+                                    </Text>
+                                </TouchableOpacity>
+
+                                <TouchableOpacity
+                                    onPress={() => { setVerifyEmail(false); setVerificationCode(''); }}
+                                    style={{ marginTop: 12, alignItems: 'center' }}
+                                >
+                                    <Text style={{ color: C.textMuted, fontSize: 14 }}>
+                                        <Text style={{ color: C.accent, fontWeight: '700' }}>Back to Sign Up</Text>
+                                    </Text>
+                                </TouchableOpacity>
+                            </View>
+                        ) : (
+                            /* ── Login / Signup Form ── */
+                            <View>
+                                {/* Mode toggle pills */}
+                                <View
+                                    style={{
+                                        flexDirection: 'row',
+                                        backgroundColor: C.card,
+                                        borderRadius: 14,
+                                        padding: 4,
+                                        marginBottom: 24,
+                                        borderWidth: 1,
+                                        borderColor: C.borderFaint,
+                                    }}
+                                >
+                                    <TouchableOpacity
+                                        onPress={() => setMode('login')}
+                                        style={{
+                                            flex: 1,
+                                            paddingVertical: 12,
+                                            borderRadius: 11,
+                                            alignItems: 'center',
+                                            backgroundColor: mode === 'login' ? C.accent : 'transparent',
+                                        }}
+                                    >
+                                        <Text
+                                            style={{
+                                                fontWeight: '700',
+                                                fontSize: 14,
+                                                color: mode === 'login' ? C.background : C.textMuted,
+                                            }}
+                                        >
+                                            Sign In
+                                        </Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                        onPress={() => setMode('signup')}
+                                        style={{
+                                            flex: 1,
+                                            paddingVertical: 12,
+                                            borderRadius: 11,
+                                            alignItems: 'center',
+                                            backgroundColor: mode === 'signup' ? C.accent : 'transparent',
+                                        }}
+                                    >
+                                        <Text
+                                            style={{
+                                                fontWeight: '700',
+                                                fontSize: 14,
+                                                color: mode === 'signup' ? C.background : C.textMuted,
+                                            }}
+                                        >
+                                            Sign Up
+                                        </Text>
+                                    </TouchableOpacity>
+                                </View>
+
+                                <View style={{ gap: 14 }}>
+                                    {/* Name field — only in signup mode */}
+                                    {mode === 'signup' && (
+                                        <Animated.View style={{ opacity: nameHeight }}>
+                                            <View style={{ position: 'relative' }}>
+                                                <View style={{ position: 'absolute', left: 16, top: 16, zIndex: 1 }}>
+                                                    <MaterialCommunityIcons name="account-outline" size={20} color={focusedField === 'name' ? C.accent : C.textDim} />
+                                                </View>
+                                                <TextInput
+                                                    value={name}
+                                                    onChangeText={setName}
+                                                    placeholder="Full Name"
+                                                    placeholderTextColor={C.textDim}
+                                                    autoCapitalize="words"
+                                                    onFocus={() => setFocusedField('name')}
+                                                    onBlur={() => setFocusedField(null)}
+                                                    style={{
+                                                        ...inputStyle('name'),
+                                                        paddingLeft: 44,
+                                                    }}
+                                                />
+                                            </View>
+                                        </Animated.View>
+                                    )}
+
+                                    {/* Email */}
+                                    <View style={{ position: 'relative' }}>
+                                        <View style={{ position: 'absolute', left: 16, top: 16, zIndex: 1 }}>
+                                            <MaterialCommunityIcons name="email-outline" size={20} color={focusedField === 'email' ? C.accent : C.textDim} />
+                                        </View>
+                                        <TextInput
+                                            value={email}
+                                            onChangeText={setEmail}
+                                            placeholder="Email"
+                                            placeholderTextColor={C.textDim}
+                                            autoCapitalize="none"
+                                            keyboardType="email-address"
+                                            onFocus={() => setFocusedField('email')}
+                                            onBlur={() => setFocusedField(null)}
+                                            style={{
+                                                ...inputStyle('email'),
                                                 paddingLeft: 44,
                                             }}
                                         />
                                     </View>
-                                </Animated.View>
-                            )}
 
-                            {/* Email */}
-                            <View style={{ position: 'relative' }}>
-                                <View style={{ position: 'absolute', left: 16, top: 16, zIndex: 1 }}>
-                                    <MaterialCommunityIcons name="email-outline" size={20} color={focusedField === 'email' ? C.accent : C.textDim} />
-                                </View>
-                                <TextInput
-                                    value={email}
-                                    onChangeText={setEmail}
-                                    placeholder="Email"
-                                    placeholderTextColor={C.textDim}
-                                    autoCapitalize="none"
-                                    keyboardType="email-address"
-                                    onFocus={() => setFocusedField('email')}
-                                    onBlur={() => setFocusedField(null)}
-                                    style={{
-                                        ...inputStyle('email'),
-                                        paddingLeft: 44,
-                                    }}
-                                />
-                            </View>
+                                    {/* Password */}
+                                    <View style={{ position: 'relative' }}>
+                                        <View style={{ position: 'absolute', left: 16, top: 16, zIndex: 1 }}>
+                                            <MaterialCommunityIcons name="lock-outline" size={20} color={focusedField === 'password' ? C.accent : C.textDim} />
+                                        </View>
+                                        <TextInput
+                                            value={password}
+                                            onChangeText={setPassword}
+                                            placeholder="Password"
+                                            placeholderTextColor={C.textDim}
+                                            secureTextEntry={!showPassword}
+                                            onFocus={() => setFocusedField('password')}
+                                            onBlur={() => setFocusedField(null)}
+                                            style={{
+                                                ...inputStyle('password'),
+                                                paddingLeft: 44,
+                                            }}
+                                        />
+                                        <TouchableOpacity
+                                            onPress={() => setShowPassword(!showPassword)}
+                                            style={{ position: 'absolute', right: 16, top: 16, zIndex: 1 }}
+                                        >
+                                            <MaterialCommunityIcons
+                                                name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                                                size={20}
+                                                color={C.textDim}
+                                            />
+                                        </TouchableOpacity>
+                                    </View>
 
-                            {/* Password */}
-                            <View style={{ position: 'relative' }}>
-                                <View style={{ position: 'absolute', left: 16, top: 16, zIndex: 1 }}>
-                                    <MaterialCommunityIcons name="lock-outline" size={20} color={focusedField === 'password' ? C.accent : C.textDim} />
+                                    {/* Submit button */}
+                                    <TouchableOpacity
+                                        onPress={handleSubmit}
+                                        disabled={loading}
+                                        activeOpacity={0.85}
+                                        style={{
+                                            backgroundColor: C.accent,
+                                            padding: 17,
+                                            borderRadius: 16,
+                                            alignItems: 'center',
+                                            marginTop: 6,
+                                            shadowColor: C.accent,
+                                            shadowOffset: { width: 0, height: 4 },
+                                            shadowOpacity: 0.3,
+                                            shadowRadius: 12,
+                                            elevation: 6,
+                                        }}
+                                    >
+                                        {loading ? (
+                                            <ActivityIndicator color={C.background} />
+                                        ) : (
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                                                <Text
+                                                    style={{
+                                                        color: C.background,
+                                                        fontWeight: '800',
+                                                        fontSize: 16,
+                                                        letterSpacing: 0.3,
+                                                    }}
+                                                >
+                                                    {mode === 'login' ? 'Sign In' : 'Create Account'}
+                                                </Text>
+                                                <MaterialCommunityIcons
+                                                    name="arrow-right"
+                                                    size={18}
+                                                    color={C.background}
+                                                />
+                                            </View>
+                                        )}
+                                    </TouchableOpacity>
                                 </View>
-                                <TextInput
-                                    value={password}
-                                    onChangeText={setPassword}
-                                    placeholder="Password"
-                                    placeholderTextColor={C.textDim}
-                                    secureTextEntry={!showPassword}
-                                    onFocus={() => setFocusedField('password')}
-                                    onBlur={() => setFocusedField(null)}
-                                    style={{
-                                        ...inputStyle('password'),
-                                        paddingLeft: 44,
-                                    }}
-                                />
+
+                                {/* Bottom toggle text */}
                                 <TouchableOpacity
-                                    onPress={() => setShowPassword(!showPassword)}
-                                    style={{ position: 'absolute', right: 16, top: 16, zIndex: 1 }}
+                                    onPress={toggleMode}
+                                    style={{ marginTop: 24, alignItems: 'center' }}
                                 >
-                                    <MaterialCommunityIcons
-                                        name={showPassword ? 'eye-off-outline' : 'eye-outline'}
-                                        size={20}
-                                        color={C.textDim}
-                                    />
+                                    <Text style={{ color: C.textMuted, fontSize: 14 }}>
+                                        {mode === 'login' ? "Don't have an account? " : 'Already have an account? '}
+                                        <Text style={{ color: C.accent, fontWeight: '700' }}>
+                                            {mode === 'login' ? 'Sign Up' : 'Sign In'}
+                                        </Text>
+                                    </Text>
                                 </TouchableOpacity>
                             </View>
-
-                            {/* Submit button */}
-                            <TouchableOpacity
-                                onPress={handleSubmit}
-                                disabled={loading}
-                                activeOpacity={0.85}
-                                style={{
-                                    backgroundColor: C.accent,
-                                    padding: 17,
-                                    borderRadius: 16,
-                                    alignItems: 'center',
-                                    marginTop: 6,
-                                    shadowColor: C.accent,
-                                    shadowOffset: { width: 0, height: 4 },
-                                    shadowOpacity: 0.3,
-                                    shadowRadius: 12,
-                                    elevation: 6,
-                                }}
-                            >
-                                {loading ? (
-                                    <ActivityIndicator color={C.background} />
-                                ) : (
-                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                                        <Text
-                                            style={{
-                                                color: C.background,
-                                                fontWeight: '800',
-                                                fontSize: 16,
-                                                letterSpacing: 0.3,
-                                            }}
-                                        >
-                                            {mode === 'login' ? 'Sign In' : 'Create Account'}
-                                        </Text>
-                                        <MaterialCommunityIcons
-                                            name="arrow-right"
-                                            size={18}
-                                            color={C.background}
-                                        />
-                                    </View>
-                                )}
-                            </TouchableOpacity>
-                        </View>
-
-                        {/* Bottom toggle text */}
-                        <TouchableOpacity
-                            onPress={toggleMode}
-                            style={{ marginTop: 24, alignItems: 'center' }}
-                        >
-                            <Text style={{ color: C.textMuted, fontSize: 14 }}>
-                                {mode === 'login' ? "Don't have an account? " : 'Already have an account? '}
-                                <Text style={{ color: C.accent, fontWeight: '700' }}>
-                                    {mode === 'login' ? 'Sign Up' : 'Sign In'}
-                                </Text>
-                            </Text>
-                        </TouchableOpacity>
+                        )}
                     </Animated.View>
                 </View>
             </KeyboardAvoidingView>
