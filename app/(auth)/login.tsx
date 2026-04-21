@@ -186,7 +186,7 @@ export default function LoginScreen() {
 
     async function handleVerifyCode() {
         if (!verificationCode.trim()) {
-            Alert.alert('Missing Code', 'Please enter the 6-digit code from your email.');
+            Alert.alert('Missing Code', 'Please enter the code from your email.');
             return;
         }
         setLoading(true);
@@ -408,7 +408,7 @@ export default function LoginScreen() {
                                         Check your email
                                     </Text>
                                     <Text style={{ color: C.textMuted, fontSize: 14, textAlign: 'center', lineHeight: 20 }}>
-                                        We sent a 6-digit verification code to{'\n'}
+                                        We sent a verification code to{'\n'}
                                         <Text style={{ color: C.accent, fontWeight: '600' }}>{email.trim()}</Text>
                                     </Text>
                                 </View>
@@ -421,10 +421,10 @@ export default function LoginScreen() {
                                         <TextInput
                                             value={verificationCode}
                                             onChangeText={setVerificationCode}
-                                            placeholder="Enter 6-digit code"
+                                            placeholder="Enter verification code"
                                             placeholderTextColor={C.textDim}
                                             keyboardType="number-pad"
-                                            maxLength={6}
+                                            maxLength={10}
                                             autoFocus
                                             onFocus={() => setFocusedField('code')}
                                             onBlur={() => setFocusedField(null)}
