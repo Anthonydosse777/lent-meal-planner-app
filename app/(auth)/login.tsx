@@ -191,13 +191,26 @@ export default function LoginScreen() {
         }
         setLoading(true);
         try {
-            console.log('[verify] attempting verifyOtp', { email: email.trim(), token: verificationCode.trim() });
-            const { data, error: verifyError } = await supabase.auth.verifyOtp({
-                email: email.trim(),
-                token: verificationCode.trim(),
-                type: 'signup',
+            const trimmedEmail = email.trim();
+            const trimmedToken = verificationCode.trim();
+            console.log('[verify] attempt 1: type=email');
+            let { data, error: verifyError } = await supabase.auth.verifyOtp({
+                email: trimmedEmail,
+                token: trimmedToken,
+                type: 'email',
             });
-            console.log('[verify] result', { data, verifyError });
+            console.log('[verify] attempt 1 result', { data, verifyError });
+            if (verifyError || !data.session) {
+                console.log('[verify] attempt 2: type=signup');
+                const result = await supabase.auth.verifyOtp({
+                    email: trimmedEmail,
+                    token: trimmedToken,
+                    type: 'signup',
+                });
+                data = result.data;
+                verifyError = result.error;
+                console.log('[verify] attempt 2 result', { data, verifyError });
+            }
             if (verifyError) {
                 Alert.alert('Verification Failed', verifyError.message);
             } else if (!data.session) {
