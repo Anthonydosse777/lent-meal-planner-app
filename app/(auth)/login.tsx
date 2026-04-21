@@ -191,15 +191,17 @@ export default function LoginScreen() {
         }
         setLoading(true);
         try {
+            console.log('[verify] attempting verifyOtp', { email: email.trim(), token: verificationCode.trim() });
             const { data, error: verifyError } = await supabase.auth.verifyOtp({
                 email: email.trim(),
                 token: verificationCode.trim(),
-                type: 'email',
+                type: 'signup',
             });
+            console.log('[verify] result', { data, verifyError });
             if (verifyError) {
                 Alert.alert('Verification Failed', verifyError.message);
             } else if (!data.session) {
-                Alert.alert('Verification Failed', 'Could not confirm email. Please try again.');
+                Alert.alert('Verification Failed', 'No session returned. Check console for details.');
             }
         } catch (e: any) {
             Alert.alert('Error', e.message ?? 'Something went wrong.');
