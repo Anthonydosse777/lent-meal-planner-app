@@ -14,6 +14,8 @@ import {
 } from "../../lib/storage";
 import { useStore, getDayCalorieGoal, getWeeklyCalorieTotal } from "../../lib/store";
 import { searchFoods, type USDAFood } from "../../lib/usda";
+import { lookupBarcode, type BarcodeProduct } from "../../lib/openfoodfacts";
+import { BarcodeScanner, isBarcodeScannerAvailable } from "../../components/BarcodeScanner";
 
 type Tab = "nutrition" | "weight";
 
@@ -44,6 +46,14 @@ export default function ProgressScreen() {
     const [usdaResults, setUsdaResults] = useState<USDAFood[]>([]);
     const [usdaLoading, setUsdaLoading] = useState(false);
     const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    // Barcode scanning state
+    const canScanBarcodes = isBarcodeScannerAvailable();
+    const [scannerOpen, setScannerOpen] = useState(false);
+    const [scannedProduct, setScannedProduct] = useState<BarcodeProduct | null>(null);
+    const [servings, setServings] = useState("1");
+    const [lookupLoading, setLookupLoading] = useState(false);
+    const [lookupError, setLookupError] = useState<string | null>(null);
 
     // Debounced USDA search
     useEffect(() => {
@@ -114,6 +124,66 @@ export default function ProgressScreen() {
         setFoodSearch("");
         setUsdaResults([]);
         setSelectedFoodIdx(null);
+    }
+
+    async function handleBarcodeScanned(barcode: string) {
+        setScannerOpen(false);
+        setLookupLoading(true);
+        setLookupError(null);
+        try {
+            const product = await lookupBarcode(barcode);
+            if (!product) {
+                setLookupError(`No product found for barcode ${barcode}. Try searching manually.`);
+                return;
+            }
+            if (!product.perServing && !product.per100g) {
+                setLookupError("Nutrition info isn't available for this product.");
+                return;
+            }
+            setScannedProduct(product);
+            setServings("1");
+        } catch (e: any) {
+            setLookupError(e?.message ?? "Lookup failed. Check your connection and try again.");
+        } finally {
+            setLookupLoading(false);
+        }
+    }
+
+    function closeScannedProduct() {
+        setScannedProduct(null);
+        setServings("1");
+    }
+
+    async function handleLogScannedProduct() {
+        if (!scannedProduct) return;
+        const n = scannedProduct.perServing ?? scannedProduct.per100g;
+        if (!n) return;
+        const s = parseFloat(servings);
+        if (!Number.isFinite(s) || s <= 0) return;
+
+        setSavingMeal(true);
+        const title = scannedProduct.brand
+            ? `${scannedProduct.brand} — ${scannedProduct.name}`
+            : scannedProduct.name;
+        const suffix = scannedProduct.perServing
+            ? ` (${s} serving${s === 1 ? "" : "s"})`
+            : ` (${s}g)`;
+
+        await logMeal({
+            id: Math.random().toString(36).slice(2, 10),
+            title: title + suffix,
+            source: "Barcode",
+            totalNutrition: {
+                calories: Math.round(n.calories * s),
+                protein: Math.round(n.protein * s * 10) / 10,
+                carbs: Math.round(n.carbs * s * 10) / 10,
+                fat: Math.round(n.fat * s * 10) / 10,
+                fiber: Math.round(n.fiber * s * 10) / 10,
+            },
+        });
+        closeScannedProduct();
+        await load();
+        setSavingMeal(false);
     }
 
     function addCustomFoodItem() {
@@ -313,6 +383,148 @@ export default function ProgressScreen() {
 
                             {showFoodForm && (
                                 <View style={{ marginTop: 16 }}>
+                                    {/* Scan barcode (mobile with camera only) */}
+                                    {canScanBarcodes && !scannedProduct && (
+                                        <TouchableOpacity
+                                            onPress={() => { setLookupError(null); setScannerOpen(true); }}
+                                            activeOpacity={0.8}
+                                            style={{
+                                                flexDirection: "row", alignItems: "center", justifyContent: "center",
+                                                gap: 8, paddingVertical: 12, borderRadius: 12,
+                                                backgroundColor: C.accent, marginBottom: 12,
+                                            }}
+                                        >
+                                            <MaterialCommunityIcons name="barcode-scan" size={18} color={C.background} />
+                                            <Text style={{ color: C.background, fontSize: 14, fontWeight: "800" }}>
+                                                Scan barcode
+                                            </Text>
+                                        </TouchableOpacity>
+                                    )}
+
+                                    {lookupLoading && (
+                                        <View style={{
+                                            flexDirection: "row", alignItems: "center", gap: 8,
+                                            backgroundColor: C.cardElevated, padding: 12,
+                                            borderRadius: 12, marginBottom: 12,
+                                        }}>
+                                            <ActivityIndicator size="small" color={C.accent} />
+                                            <Text style={{ color: C.textMuted, fontSize: 13 }}>
+                                                Looking up product…
+                                            </Text>
+                                        </View>
+                                    )}
+
+                                    {lookupError && (
+                                        <View style={{
+                                            backgroundColor: C.dangerMuted ?? "#7f1d1d",
+                                            padding: 12, borderRadius: 12, marginBottom: 12,
+                                        }}>
+                                            <Text style={{ color: C.danger ?? "#fecaca", fontSize: 12, fontWeight: "600" }}>
+                                                {lookupError}
+                                            </Text>
+                                        </View>
+                                    )}
+
+                                    {/* Scanned product preview */}
+                                    {scannedProduct && (
+                                        <View style={{
+                                            backgroundColor: C.cardElevated, borderRadius: 14, padding: 14,
+                                            marginBottom: 12, borderWidth: 1, borderColor: C.accent + "40",
+                                        }}>
+                                            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
+                                                <View style={{ flex: 1 }}>
+                                                    <Text style={{ color: C.text, fontSize: 14, fontWeight: "800" }} numberOfLines={2}>
+                                                        {scannedProduct.name}
+                                                    </Text>
+                                                    {scannedProduct.brand && (
+                                                        <Text style={{ color: C.textMuted, fontSize: 12, marginTop: 2 }}>
+                                                            {scannedProduct.brand}
+                                                        </Text>
+                                                    )}
+                                                    <Text style={{ color: C.textDim, fontSize: 10, marginTop: 2 }}>
+                                                        Barcode {scannedProduct.barcode}
+                                                    </Text>
+                                                </View>
+                                                <TouchableOpacity onPress={closeScannedProduct} hitSlop={8}>
+                                                    <MaterialCommunityIcons name="close-circle" size={20} color={C.textDim} />
+                                                </TouchableOpacity>
+                                            </View>
+
+                                            {/* Per-serving info */}
+                                            {(() => {
+                                                const n = scannedProduct.perServing ?? scannedProduct.per100g;
+                                                if (!n) return null;
+                                                const unit = scannedProduct.perServing
+                                                    ? `per serving${scannedProduct.servingSize ? ` (${scannedProduct.servingSize})` : ""}`
+                                                    : "per 100g";
+                                                return (
+                                                    <View style={{ marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: C.borderFaint }}>
+                                                        <Text style={{ color: C.textDim, fontSize: 10, fontWeight: "600", marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                                                            {unit}
+                                                        </Text>
+                                                        <View style={{ flexDirection: "row", gap: 12 }}>
+                                                            <Text style={{ color: C.accent, fontSize: 12, fontWeight: "700" }}>{n.calories} cal</Text>
+                                                            <Text style={{ color: C.success, fontSize: 12, fontWeight: "600" }}>{n.protein}g P</Text>
+                                                            <Text style={{ color: "#60a5fa", fontSize: 12, fontWeight: "600" }}>{n.carbs}g C</Text>
+                                                            <Text style={{ color: C.textMuted, fontSize: 12, fontWeight: "600" }}>{n.fat}g F</Text>
+                                                        </View>
+                                                    </View>
+                                                );
+                                            })()}
+
+                                            {/* Servings input */}
+                                            <View style={{ marginTop: 12, flexDirection: "row", alignItems: "center", gap: 10 }}>
+                                                <Text style={{ color: C.textMuted, fontSize: 13, fontWeight: "600" }}>
+                                                    {scannedProduct.perServing ? "Servings:" : "Grams:"}
+                                                </Text>
+                                                <TextInput
+                                                    value={servings}
+                                                    onChangeText={setServings}
+                                                    keyboardType="decimal-pad"
+                                                    selectTextOnFocus
+                                                    style={{
+                                                        width: 80,
+                                                        backgroundColor: C.card,
+                                                        borderWidth: 1.5, borderColor: C.border,
+                                                        borderRadius: 10, paddingHorizontal: 10,
+                                                        paddingVertical: 8,
+                                                        color: C.text, fontSize: 14, fontWeight: "700",
+                                                        textAlign: "center",
+                                                    }}
+                                                />
+                                                {(() => {
+                                                    const n = scannedProduct.perServing ?? scannedProduct.per100g;
+                                                    const s = parseFloat(servings);
+                                                    if (!n || !Number.isFinite(s) || s <= 0) return null;
+                                                    const factor = scannedProduct.perServing ? s : s / 100;
+                                                    return (
+                                                        <Text style={{ color: C.accent, fontSize: 13, fontWeight: "800" }}>
+                                                            = {Math.round(n.calories * factor)} cal
+                                                        </Text>
+                                                    );
+                                                })()}
+                                            </View>
+
+                                            <TouchableOpacity
+                                                onPress={handleLogScannedProduct}
+                                                disabled={savingMeal || !parseFloat(servings)}
+                                                activeOpacity={0.8}
+                                                style={{
+                                                    marginTop: 12, paddingVertical: 11, borderRadius: 12,
+                                                    backgroundColor: parseFloat(servings) ? C.accent : C.card,
+                                                    alignItems: "center",
+                                                }}
+                                            >
+                                                <Text style={{
+                                                    color: parseFloat(servings) ? C.background : C.textDim,
+                                                    fontWeight: "800", fontSize: 14,
+                                                }}>
+                                                    {savingMeal ? "Logging…" : "Log This"}
+                                                </Text>
+                                            </TouchableOpacity>
+                                        </View>
+                                    )}
+
                                     {/* Search / add food */}
                                     <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                                         <View style={{ flex: 1, position: "relative" }}>
@@ -807,6 +1019,12 @@ export default function ProgressScreen() {
                     </>
                 )}
             </ScrollView>
+
+            <BarcodeScanner
+                visible={scannerOpen}
+                onClose={() => setScannerOpen(false)}
+                onScan={handleBarcodeScanned}
+            />
         </SafeAreaView>
     );
 }
