@@ -5,6 +5,7 @@ import { StatusBar } from "expo-status-bar";
 import * as SplashScreen from "expo-splash-screen";
 import { supabase } from "../lib/supabase";
 import { Session } from "@supabase/supabase-js";
+import { hydrateForUser } from "../lib/store";
 import "../global.css";
 
 SplashScreen.preventAutoHideAsync();
@@ -26,6 +27,9 @@ export default function RootLayout() {
 
         const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
             setSession(session);
+            // Reload per-user planner config whenever auth state changes so
+            // saved calorie goals survive log-out/log-in cycles.
+            hydrateForUser(session?.user?.id ?? null);
         });
 
         return () => subscription.unsubscribe();

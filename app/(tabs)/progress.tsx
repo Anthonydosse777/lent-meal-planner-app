@@ -314,83 +314,81 @@ export default function ProgressScreen() {
                             {showFoodForm && (
                                 <View style={{ marginTop: 16 }}>
                                     {/* Search / add food */}
-                                    <View style={{ position: "relative", zIndex: 10 }}>
-                                        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                                            <View style={{ flex: 1, position: "relative" }}>
-                                                <View style={{ position: "absolute", left: 12, top: 11, zIndex: 1 }}>
-                                                    <MaterialCommunityIcons name="magnify" size={18} color={C.textDim} />
-                                                </View>
-                                                <TextInput
-                                                    value={foodSearch}
-                                                    onChangeText={setFoodSearch}
-                                                    placeholder="Search USDA database..."
-                                                    placeholderTextColor={C.textDim}
-                                                    style={{
-                                                        backgroundColor: C.cardElevated,
-                                                        borderWidth: 1.5, borderColor: C.border,
-                                                        borderRadius: 12, paddingHorizontal: 14, paddingLeft: 36,
-                                                        paddingVertical: Platform.OS === "ios" ? 11 : 9,
-                                                        color: C.text, fontSize: 14, fontWeight: "600",
-                                                    }}
-                                                />
+                                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                                        <View style={{ flex: 1, position: "relative" }}>
+                                            <View style={{ position: "absolute", left: 12, top: 11, zIndex: 1 }}>
+                                                <MaterialCommunityIcons name="magnify" size={18} color={C.textDim} />
                                             </View>
-                                            {foodSearch.trim().length > 0 && (
-                                                <TouchableOpacity
-                                                    onPress={addCustomFoodItem}
-                                                    activeOpacity={0.7}
-                                                    style={{
-                                                        backgroundColor: C.cardElevated,
-                                                        borderWidth: 1.5, borderColor: C.border,
-                                                        borderRadius: 12, paddingHorizontal: 14,
-                                                        paddingVertical: Platform.OS === "ios" ? 11 : 9,
-                                                    }}
-                                                >
-                                                    <MaterialCommunityIcons name="plus" size={18} color={C.accent} />
-                                                </TouchableOpacity>
-                                            )}
+                                            <TextInput
+                                                value={foodSearch}
+                                                onChangeText={setFoodSearch}
+                                                placeholder="Search USDA database..."
+                                                placeholderTextColor={C.textDim}
+                                                style={{
+                                                    backgroundColor: C.cardElevated,
+                                                    borderWidth: 1.5, borderColor: C.border,
+                                                    borderRadius: 12, paddingHorizontal: 14, paddingLeft: 36,
+                                                    paddingVertical: Platform.OS === "ios" ? 11 : 9,
+                                                    color: C.text, fontSize: 14, fontWeight: "600",
+                                                }}
+                                            />
                                         </View>
-
-                                        {/* Search results dropdown */}
-                                        {(usdaResults.length > 0 || usdaLoading) && foodSearch.trim().length > 0 && (
-                                            <View style={{
-                                                position: "absolute", top: "100%", left: 0, right: 0,
-                                                backgroundColor: C.cardElevated,
-                                                borderRadius: 12, marginTop: 4,
-                                                borderWidth: 1, borderColor: C.border,
-                                                overflow: "hidden",
-                                                ...(Platform.OS === "web" ? { zIndex: 100 } : {}),
-                                            }}>
-                                                {usdaLoading && usdaResults.length === 0 ? (
-                                                    <View style={{ padding: 14, alignItems: "center" }}>
-                                                        <ActivityIndicator size="small" color={C.accent} />
-                                                        <Text style={{ color: C.textDim, fontSize: 12, marginTop: 6 }}>
-                                                            Searching USDA database...
-                                                        </Text>
-                                                    </View>
-                                                ) : (
-                                                    usdaResults.map((food, i) => (
-                                                        <TouchableOpacity
-                                                            key={food.fdcId}
-                                                            onPress={() => addFoodItem(food)}
-                                                            activeOpacity={0.7}
-                                                            style={{
-                                                                paddingHorizontal: 14, paddingVertical: 11,
-                                                                borderBottomWidth: i < usdaResults.length - 1 ? 1 : 0,
-                                                                borderBottomColor: C.borderFaint,
-                                                            }}
-                                                        >
-                                                            <Text style={{ color: C.text, fontSize: 13, fontWeight: "600" }} numberOfLines={1}>
-                                                                {food.description}
-                                                            </Text>
-                                                            <Text style={{ color: C.textDim, fontSize: 11, marginTop: 2 }}>
-                                                                {food.per100g.calories} cal · {food.per100g.protein}g P · {food.per100g.carbs}g C · {food.per100g.fat}g F / 100g
-                                                            </Text>
-                                                        </TouchableOpacity>
-                                                    ))
-                                                )}
-                                            </View>
+                                        {foodSearch.trim().length > 0 && (
+                                            <TouchableOpacity
+                                                onPress={addCustomFoodItem}
+                                                activeOpacity={0.7}
+                                                style={{
+                                                    backgroundColor: C.cardElevated,
+                                                    borderWidth: 1.5, borderColor: C.border,
+                                                    borderRadius: 12, paddingHorizontal: 14,
+                                                    paddingVertical: Platform.OS === "ios" ? 11 : 9,
+                                                }}
+                                            >
+                                                <MaterialCommunityIcons name="plus" size={18} color={C.accent} />
+                                            </TouchableOpacity>
                                         )}
                                     </View>
+
+                                    {/* Search results — render inline so they push the cards
+                                        below down instead of being covered by them. Only visible
+                                        while the user is actually searching. */}
+                                    {(usdaResults.length > 0 || usdaLoading) && foodSearch.trim().length > 0 && (
+                                        <View style={{
+                                            backgroundColor: C.cardElevated,
+                                            borderRadius: 12, marginTop: 8,
+                                            borderWidth: 1, borderColor: C.border,
+                                            overflow: "hidden",
+                                        }}>
+                                            {usdaLoading && usdaResults.length === 0 ? (
+                                                <View style={{ padding: 14, alignItems: "center" }}>
+                                                    <ActivityIndicator size="small" color={C.accent} />
+                                                    <Text style={{ color: C.textDim, fontSize: 12, marginTop: 6 }}>
+                                                        Searching USDA database...
+                                                    </Text>
+                                                </View>
+                                            ) : (
+                                                usdaResults.map((food, i) => (
+                                                    <TouchableOpacity
+                                                        key={food.fdcId}
+                                                        onPress={() => addFoodItem(food)}
+                                                        activeOpacity={0.7}
+                                                        style={{
+                                                            paddingHorizontal: 14, paddingVertical: 11,
+                                                            borderBottomWidth: i < usdaResults.length - 1 ? 1 : 0,
+                                                            borderBottomColor: C.borderFaint,
+                                                        }}
+                                                    >
+                                                        <Text style={{ color: C.text, fontSize: 13, fontWeight: "600" }} numberOfLines={1}>
+                                                            {food.description}
+                                                        </Text>
+                                                        <Text style={{ color: C.textDim, fontSize: 11, marginTop: 2 }}>
+                                                            {food.per100g.calories} cal · {food.per100g.protein}g P · {food.per100g.carbs}g C · {food.per100g.fat}g F / 100g
+                                                        </Text>
+                                                    </TouchableOpacity>
+                                                ))
+                                            )}
+                                        </View>
+                                    )}
 
                                     {/* Added food items */}
                                     {foodItems.length > 0 && (
