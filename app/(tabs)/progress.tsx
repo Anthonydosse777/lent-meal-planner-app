@@ -33,6 +33,7 @@ export default function ProgressScreen() {
 
     const [customMealTitle, setCustomMealTitle] = useState("");
     const [customCalories, setCustomCalories] = useState("");
+    const [customProtein, setCustomProtein] = useState("");
     const [savingMeal, setSavingMeal] = useState(false);
     const [showCustomForm, setShowCustomForm] = useState(false);
 
@@ -102,18 +103,20 @@ export default function ProgressScreen() {
     }
 
     async function handleSaveCustomMeal() {
-        if (!customMealTitle && !customCalories) return;
+        if (!customMealTitle && !customCalories && !customProtein) return;
         const cal = parseInt(customCalories, 10) || 0;
-        const title = customMealTitle.trim() || "Custom Calories";
+        const prot = parseFloat(customProtein) || 0;
+        const title = customMealTitle.trim() || "Custom Entry";
         setSavingMeal(true);
         await logMeal({
             id: Math.random().toString(36).slice(2, 10),
             title,
             source: "Manual Entry",
-            totalNutrition: { calories: cal, protein: 0, carbs: 0, fiber: 0, fat: 0 }
+            totalNutrition: { calories: cal, protein: prot, carbs: 0, fiber: 0, fat: 0 }
         });
         setCustomMealTitle("");
         setCustomCalories("");
+        setCustomProtein("");
         setShowCustomForm(false);
         await load();
         setSavingMeal(false);
@@ -704,20 +707,20 @@ export default function ProgressScreen() {
                                         style={{ marginTop: 14, alignItems: "center" }}
                                     >
                                         <Text style={{ color: C.textMuted, fontSize: 12, fontWeight: "600" }}>
-                                            {showCustomForm ? "Hide quick calorie entry" : "Or just log calories manually"}
+                                            {showCustomForm ? "Hide quick entry" : "Or just log calories & protein manually"}
                                         </Text>
                                     </TouchableOpacity>
 
-                                    {showCustomForm && (
-                                        <View style={{ marginTop: 10, gap: 10 }}>
-                                            <View style={{ flexDirection: "row", gap: 10 }}>
+                                    {showCustomForm && (() => {
+                                        const hasAnyInput = Boolean(customMealTitle || customCalories || customProtein);
+                                        return (
+                                            <View style={{ marginTop: 10, gap: 10 }}>
                                                 <TextInput
                                                     value={customMealTitle}
                                                     onChangeText={setCustomMealTitle}
                                                     placeholder="Meal name"
                                                     placeholderTextColor={C.textDim}
                                                     style={{
-                                                        flex: 2,
                                                         backgroundColor: C.cardElevated,
                                                         borderWidth: 1.5, borderColor: C.border,
                                                         borderRadius: 12, paddingHorizontal: 14,
@@ -725,41 +728,58 @@ export default function ProgressScreen() {
                                                         color: C.text, fontSize: 14, fontWeight: "600",
                                                     }}
                                                 />
-                                                <TextInput
-                                                    value={customCalories}
-                                                    onChangeText={setCustomCalories}
-                                                    placeholder="Calories"
-                                                    placeholderTextColor={C.textDim}
-                                                    keyboardType="numeric"
+                                                <View style={{ flexDirection: "row", gap: 10 }}>
+                                                    <TextInput
+                                                        value={customCalories}
+                                                        onChangeText={setCustomCalories}
+                                                        placeholder="Calories"
+                                                        placeholderTextColor={C.textDim}
+                                                        keyboardType="numeric"
+                                                        style={{
+                                                            flex: 1,
+                                                            backgroundColor: C.cardElevated,
+                                                            borderWidth: 1.5, borderColor: C.border,
+                                                            borderRadius: 12, paddingHorizontal: 14,
+                                                            paddingVertical: Platform.OS === "ios" ? 10 : 8,
+                                                            color: C.text, fontSize: 14, fontWeight: "600",
+                                                        }}
+                                                    />
+                                                    <TextInput
+                                                        value={customProtein}
+                                                        onChangeText={setCustomProtein}
+                                                        placeholder="Protein (g)"
+                                                        placeholderTextColor={C.textDim}
+                                                        keyboardType="decimal-pad"
+                                                        style={{
+                                                            flex: 1,
+                                                            backgroundColor: C.cardElevated,
+                                                            borderWidth: 1.5, borderColor: C.border,
+                                                            borderRadius: 12, paddingHorizontal: 14,
+                                                            paddingVertical: Platform.OS === "ios" ? 10 : 8,
+                                                            color: C.text, fontSize: 14, fontWeight: "600",
+                                                        }}
+                                                    />
+                                                </View>
+                                                <TouchableOpacity
+                                                    onPress={handleSaveCustomMeal}
+                                                    disabled={!hasAnyInput || savingMeal}
+                                                    activeOpacity={0.7}
                                                     style={{
-                                                        flex: 1,
-                                                        backgroundColor: C.cardElevated,
-                                                        borderWidth: 1.5, borderColor: C.border,
-                                                        borderRadius: 12, paddingHorizontal: 14,
-                                                        paddingVertical: Platform.OS === "ios" ? 10 : 8,
-                                                        color: C.text, fontSize: 14, fontWeight: "600",
+                                                        paddingVertical: 11, borderRadius: 12,
+                                                        backgroundColor: hasAnyInput ? C.accent : C.cardElevated,
+                                                        alignItems: "center",
                                                     }}
-                                                />
+                                                >
+                                                    <Text style={{
+                                                        color: hasAnyInput ? C.background : C.textDim,
+                                                        fontWeight: "800", fontSize: 14,
+                                                    }}>
+                                                        Save Quick Entry
+                                                    </Text>
+                                                </TouchableOpacity>
                                             </View>
-                                            <TouchableOpacity
-                                                onPress={handleSaveCustomMeal}
-                                                disabled={(!customMealTitle && !customCalories) || savingMeal}
-                                                activeOpacity={0.7}
-                                                style={{
-                                                    paddingVertical: 11, borderRadius: 12,
-                                                    backgroundColor: (customMealTitle || customCalories) ? C.accent : C.cardElevated,
-                                                    alignItems: "center",
-                                                }}
-                                            >
-                                                <Text style={{
-                                                    color: (customMealTitle || customCalories) ? C.background : C.textDim,
-                                                    fontWeight: "800", fontSize: 14,
-                                                }}>
-                                                    Save Quick Entry
-                                                </Text>
-                                            </TouchableOpacity>
-                                        </View>
-                                    )}
+                                        );
+                                    })()}
                                 </View>
                             )}
                         </View>
