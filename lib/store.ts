@@ -89,36 +89,73 @@ function parseConfig(raw: string | null): PlannerConfig | null {
 
 async function fetchRemoteConfig(): Promise<PlannerConfig | null> {
     try {
-        const { data } = await supabase.auth.getUser();
+        const { data, error } = await supabase.auth.getUser();
+        if (error) {
+            console.warn("[store] getUser failed:", error.message);
+            return null;
+        }
         const meta = (data?.user?.user_metadata ?? {}) as Record<string, unknown>;
         const remote = meta.plannerConfig;
         if (remote && typeof remote === "object") {
             return parseConfig(JSON.stringify(remote));
         }
-    } catch {
-        // network / auth failure — fall back to local cache
+        return null;
+    } catch (e) {
+        console.warn("[store] getUser threw:", e);
+        return null;
     }
-    return null;
 }
 
 let remoteSaveTimer: ReturnType<typeof setTimeout> | null = null;
+// Tracks whether we've pushed the most recent local value up yet. If a save
+// errors, we retry on the next edit. Needed so a silent failure isn't
+// permanent.
+let remotePending: PlannerConfig | null = null;
+
+async function flushRemoteSave(userId: string, config: PlannerConfig) {
+    try {
+        const { data, error } = await supabase.auth.updateUser({
+            data: { plannerConfig: config },
+        });
+        if (error) {
+            console.warn("[store] updateUser failed:", error.message);
+            remotePending = config;
+            return;
+        }
+        remotePending = null;
+        console.log("[store] synced planner config to Supabase", {
+            userId,
+            calories: data?.user?.user_metadata?.plannerConfig?.weeklyCalories,
+        });
+    } catch (e) {
+        console.warn("[store] updateUser threw:", e);
+        remotePending = config;
+    }
+}
+
 function scheduleRemoteSave(userId: string | null, config: PlannerConfig) {
     if (!userId) return;
+    remotePending = config;
     if (remoteSaveTimer) clearTimeout(remoteSaveTimer);
     // Debounce to avoid hammering Supabase on every keystroke.
     remoteSaveTimer = setTimeout(() => {
-        supabase.auth.updateUser({ data: { plannerConfig: config } }).catch(() => {});
+        if (remotePending && currentUserId) {
+            flushRemoteSave(currentUserId, remotePending);
+        }
     }, 800);
 }
 
 export async function hydrateForUser(userId: string | null): Promise<void> {
+    // No-op if we're already hydrated for this user. Prevents USER_UPDATED
+    // events (fired after every updateUser call) from redundantly re-fetching
+    // and racing with in-flight local edits.
+    if (hydrated && userId === currentUserId) return;
+
     currentUserId = userId;
     hydrated = false;
     const key = storageKeyFor(userId);
     try {
         let saved = await AsyncStorage.getItem(key);
-        // One-time migration: if this user has no config yet but there's data
-        // at the pre-per-user key, inherit it so existing installs don't reset.
         if (!saved) {
             const legacy = await AsyncStorage.getItem(LEGACY_STORAGE_KEY);
             if (legacy) {
@@ -128,20 +165,22 @@ export async function hydrateForUser(userId: string | null): Promise<void> {
         }
         const localLoaded = parseConfig(saved);
 
-        // When logged in, treat Supabase user_metadata as the source of truth
-        // so settings sync across devices. Local AsyncStorage is only a cache.
+        // When logged in, Supabase user_metadata is the source of truth so
+        // settings follow the account across devices. Local AsyncStorage is
+        // just a warm cache.
         let resolved: PlannerConfig | null = null;
         if (userId) {
             const remote = await fetchRemoteConfig();
             if (remote) {
                 resolved = remote;
-                // Refresh the local cache so next cold start is fast/offline.
-                AsyncStorage.setItem(key, JSON.stringify(remote)).catch(() => {});
+                AsyncStorage.setItem(key, JSON.stringify(remote)).catch((e) =>
+                    console.warn("[store] local cache write failed:", e),
+                );
             } else if (localLoaded) {
-                // First time on this account — push local settings up so other
-                // devices pick them up going forward.
+                // First time on this account — push local up so future devices
+                // inherit these goals.
                 resolved = localLoaded;
-                supabase.auth.updateUser({ data: { plannerConfig: localLoaded } }).catch(() => {});
+                flushRemoteSave(userId, localLoaded);
             }
         } else {
             resolved = localLoaded;
@@ -155,23 +194,23 @@ export async function hydrateForUser(userId: string | null): Promise<void> {
                 config: { ...DEFAULT_CONFIG, weeklyCalories: [...DEFAULT_CONFIG.weeklyCalories] },
             };
         }
-    } catch {
-        // ignore corrupt storage
+    } catch (e) {
+        console.warn("[store] hydrate failed:", e);
     } finally {
         hydrated = true;
         notify();
     }
 }
 
-// Kick off a best-effort anonymous hydrate on module init so the app still
-// shows something sensible before the auth layer reports a user.
+// Best-effort anonymous hydrate on module init so the app renders something
+// sensible before auth resolves.
 hydrateForUser(null).catch(() => {});
 
 function persistConfig(config: PlannerConfig) {
     if (!hydrated) return;
-    // Always write to local cache for instant reads on next launch.
-    AsyncStorage.setItem(storageKeyFor(currentUserId), JSON.stringify(config)).catch(() => {});
-    // Also sync to Supabase so other devices on the same account see the change.
+    AsyncStorage.setItem(storageKeyFor(currentUserId), JSON.stringify(config)).catch((e) =>
+        console.warn("[store] local cache write failed:", e),
+    );
     scheduleRemoteSave(currentUserId, config);
 }
 
