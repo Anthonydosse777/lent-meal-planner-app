@@ -104,6 +104,39 @@ export async function fetchAiMeal(params: {
     };
 }
 
+// ─── Photo food analysis ───────────────────────────────────────────────────────
+
+export interface PhotoFoodAnalysis {
+    scaleWeightGrams: number | null;
+    labelDetected: boolean;
+    brand: string | null;
+    productName: string | null;
+    foodGuess: string | null;
+    matchedRecentIndex: number | null;
+    confidence: "high" | "medium" | "low";
+    per100g: { calories: number; protein: number; carbs: number; fat: number; fiber: number } | null;
+}
+
+/**
+ * Sends a photo of food sitting on a kitchen scale to the AI vision model.
+ * `recentFoods` (most-recent/most-used first) lets the model match the photo
+ * against things the user has already logged; `matchedRecentIndex` indexes
+ * into that same array.
+ */
+export async function analyzeFoodPhoto(
+    imageBase64: string,
+    recentFoods: string[],
+    provider?: Provider,
+): Promise<PhotoFoodAnalysis> {
+    const { analysis } = await invokeAiProxy<{ analysis: PhotoFoodAnalysis }>({
+        action: "photo-food",
+        provider,
+        image: imageBase64,
+        recentFoods,
+    });
+    return analysis;
+}
+
 // ─── Chat ──────────────────────────────────────────────────────────────────────
 
 export async function sendChatMessage(messages: Message[], provider?: Provider): Promise<string> {

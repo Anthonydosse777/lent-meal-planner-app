@@ -23,6 +23,8 @@ const MAX_MESSAGES = 30;
 const MAX_MESSAGE_CHARS = 4000;
 const MAX_QUERY_CHARS = 200;
 const MAX_TITLES = 40;
+const MAX_IMAGE_B64 = 3_000_000; // ~2.2 MB of JPEG, plenty for a downscaled photo
+const MAX_RECENT_FOODS = 15;
 
 function json(body: unknown, status = 200): Response {
     return new Response(JSON.stringify(body), {
@@ -76,6 +78,37 @@ Respond ONLY with a valid JSON object (no markdown, no explanation):
 }`;
 }
 
+function buildPhotoFoodPrompt(recentFoods: string[]): string {
+    const recentList = recentFoods.length > 0
+        ? recentFoods.map((f, i) => `${i}. ${f}`).join("\n")
+        : "(none)";
+
+    return `You are a food-logging assistant. The photo shows food that is sitting on a kitchen scale, about to be eaten.
+
+Do ALL of the following:
+1. Read the scale's display if it is visible and legible. Report the weight in grams (convert from oz/lb if the display shows those). If you cannot read it confidently, use null.
+2. Look for branded packaging or a product label on the food (e.g. a yogurt tub that says "Lidl Greek Yogurt"). If a label is readable, extract the brand and the product name.
+3. If there is no readable label (plain/unpackaged food), identify the food generically in a short phrase (e.g. "greek yogurt", "grilled chicken breast").
+4. Compare what you see against the user's recently logged foods below. If the food in the photo is very likely one of them, report that item's index number. Otherwise use null.
+5. Estimate the nutrition of this food per 100 g.
+
+User's recently logged foods:
+${recentList}
+
+Respond ONLY with a valid JSON object (no markdown, no explanation):
+{
+  "scaleWeightGrams": 100.0,
+  "labelDetected": true,
+  "brand": "Lidl",
+  "productName": "Greek Yogurt",
+  "foodGuess": "greek yogurt",
+  "matchedRecentIndex": 0,
+  "confidence": "high",
+  "per100g": { "calories": 59, "protein": 10, "carbs": 3.6, "fat": 0.4, "fiber": 0 }
+}
+Use null for any field you cannot determine ("confidence" must be "high", "medium", or "low").`;
+}
+
 // ─── Providers ────────────────────────────────────────────────────────────────
 
 async function callOpenAI(messages: Array<{ role: string; content: string }>, opts: { temperature: number; maxTokens?: number; jsonMode?: boolean }): Promise<string> {
@@ -117,6 +150,64 @@ async function callAnthropic(messages: ChatMessage[], opts: { system?: string; m
             max_tokens: opts.maxTokens,
             ...(opts.system ? { system: opts.system } : {}),
             messages,
+        }),
+    });
+    if (!res.ok) throw new Error(`Anthropic error: ${res.status}`);
+    const data = await res.json();
+    const block = data.content?.[0];
+    return block?.type === "text" ? block.text : "";
+}
+
+async function callOpenAIVision(prompt: string, imageB64: string): Promise<string> {
+    const key = Deno.env.get("OPENAI_API_KEY");
+    if (!key) throw new Error("OPENAI_API_KEY secret is not set");
+
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${key}`,
+        },
+        body: JSON.stringify({
+            model: "gpt-4o-mini",
+            temperature: 0.2,
+            max_tokens: 500,
+            response_format: { type: "json_object" },
+            messages: [{
+                role: "user",
+                content: [
+                    { type: "text", text: prompt },
+                    { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageB64}` } },
+                ],
+            }],
+        }),
+    });
+    if (!res.ok) throw new Error(`OpenAI error: ${res.status}`);
+    const data = await res.json();
+    return data.choices?.[0]?.message?.content ?? "";
+}
+
+async function callAnthropicVision(prompt: string, imageB64: string): Promise<string> {
+    const key = Deno.env.get("ANTHROPIC_API_KEY");
+    if (!key) throw new Error("ANTHROPIC_API_KEY secret is not set");
+
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            "x-api-key": key,
+            "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify({
+            model: "claude-haiku-4-5-20251001",
+            max_tokens: 500,
+            messages: [{
+                role: "user",
+                content: [
+                    { type: "image", source: { type: "base64", media_type: "image/jpeg", data: imageB64 } },
+                    { type: "text", text: prompt },
+                ],
+            }],
         }),
     });
     if (!res.ok) throw new Error(`Anthropic error: ${res.status}`);
@@ -182,6 +273,78 @@ async function handleChat(body: Record<string, unknown>): Promise<Response> {
     return json({ reply });
 }
 
+function sanitizePhotoAnalysis(raw: Record<string, unknown>, recentCount: number) {
+    const num = (v: unknown): number | null =>
+        typeof v === "number" && Number.isFinite(v) ? v : null;
+    const str = (v: unknown): string | null =>
+        typeof v === "string" && v.trim() ? v.trim().slice(0, 120) : null;
+    const macro = (v: unknown): number => {
+        const n = Number(v);
+        return Number.isFinite(n) && n >= 0 ? Math.min(Math.round(n * 10) / 10, 1000) : 0;
+    };
+
+    const weight = num(raw.scaleWeightGrams);
+    const idx = num(raw.matchedRecentIndex);
+    const per = raw.per100g;
+
+    return {
+        scaleWeightGrams: weight !== null && weight > 0 && weight < 20000
+            ? Math.round(weight * 10) / 10
+            : null,
+        labelDetected: raw.labelDetected === true,
+        brand: str(raw.brand),
+        productName: str(raw.productName),
+        foodGuess: str(raw.foodGuess),
+        matchedRecentIndex: idx !== null && Number.isInteger(idx) && idx >= 0 && idx < recentCount
+            ? idx
+            : null,
+        confidence: raw.confidence === "high" || raw.confidence === "medium" ? raw.confidence : "low",
+        per100g: per && typeof per === "object"
+            ? {
+                calories: macro((per as Record<string, unknown>).calories),
+                protein: macro((per as Record<string, unknown>).protein),
+                carbs: macro((per as Record<string, unknown>).carbs),
+                fat: macro((per as Record<string, unknown>).fat),
+                fiber: macro((per as Record<string, unknown>).fiber),
+            }
+            : null,
+    };
+}
+
+async function handlePhotoFood(body: Record<string, unknown>): Promise<Response> {
+    const provider = resolveProvider(body.provider);
+
+    let image = typeof body.image === "string" ? body.image.trim() : "";
+    // Accept either a raw base64 string or a full data URL.
+    const commaIdx = image.indexOf(",");
+    if (image.startsWith("data:")) image = commaIdx >= 0 ? image.slice(commaIdx + 1) : "";
+    if (!image || !/^[A-Za-z0-9+/=]+$/.test(image)) return json({ error: "Missing or invalid image" }, 400);
+    if (image.length > MAX_IMAGE_B64) return json({ error: "Image is too large" }, 400);
+
+    const recentFoods = (Array.isArray(body.recentFoods) ? body.recentFoods : [])
+        .filter((f): f is string => typeof f === "string" && f.trim().length > 0)
+        .map((f) => f.trim().slice(0, 120))
+        .slice(0, MAX_RECENT_FOODS);
+
+    const prompt = buildPhotoFoodPrompt(recentFoods);
+
+    let raw: string;
+    if (provider === "openai") {
+        raw = await callOpenAIVision(prompt, image);
+    } else {
+        raw = await callAnthropicVision(prompt, image);
+        raw = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+    }
+
+    let parsed: Record<string, unknown>;
+    try {
+        parsed = JSON.parse(raw || "{}");
+    } catch {
+        return json({ error: "AI returned invalid JSON" }, 502);
+    }
+    return json({ analysis: sanitizePhotoAnalysis(parsed, recentFoods.length), provider });
+}
+
 async function handleFoodSearch(body: Record<string, unknown>): Promise<Response> {
     const appId = Deno.env.get("NUTRITIONIX_APP_ID");
     const appKey = Deno.env.get("NUTRITIONIX_APP_KEY");
@@ -232,6 +395,7 @@ Deno.serve(async (req) => {
         switch (body.action) {
             case "meal": return await handleMeal(body);
             case "chat": return await handleChat(body);
+            case "photo-food": return await handlePhotoFood(body);
             case "food-search": return await handleFoodSearch(body);
             default: return json({ error: "Unknown action" }, 400);
         }

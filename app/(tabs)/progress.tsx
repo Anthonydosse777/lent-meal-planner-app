@@ -17,6 +17,7 @@ import { searchFoods, type USDAFood } from "../../lib/usda";
 import { lookupBarcode, searchFoodsOFF, type BarcodeProduct } from "../../lib/openfoodfacts";
 import { searchFoodsNutritionix } from "../../lib/nutritionix";
 import { BarcodeScanner, isBarcodeScannerAvailable } from "../../components/BarcodeScanner";
+import { PhotoFoodLogger, isPhotoLoggerAvailable, type PhotoLogEntry } from "../../components/PhotoFoodLogger";
 
 type Tab = "nutrition" | "weight";
 
@@ -109,6 +110,10 @@ export default function ProgressScreen() {
     const [servings, setServings] = useState("1");
     const [lookupLoading, setLookupLoading] = useState(false);
     const [lookupError, setLookupError] = useState<string | null>(null);
+
+    // Photo food logging state
+    const canPhotoLog = isPhotoLoggerAvailable();
+    const [photoLoggerOpen, setPhotoLoggerOpen] = useState(false);
 
     // Debounced food search — runs USDA and Open Food Facts in parallel then merges
     useEffect(() => {
@@ -275,6 +280,28 @@ export default function ProgressScreen() {
         } finally {
             setSavingMeal(false);
         }
+    }
+
+    async function handlePhotoLog(entry: PhotoLogEntry) {
+        const scale = entry.grams / 100;
+        const title = (entry.brandName ? `${entry.brandName} — ${entry.name}` : entry.name)
+            + ` (${entry.grams}g)`;
+
+        await logMeal({
+            id: Math.random().toString(36).slice(2, 10),
+            title,
+            source: "Photo",
+            totalNutrition: {
+                calories: Math.round(entry.per100g.calories * scale),
+                protein: Math.round(entry.per100g.protein * scale * 10) / 10,
+                carbs: Math.round(entry.per100g.carbs * scale * 10) / 10,
+                fat: Math.round(entry.per100g.fat * scale * 10) / 10,
+                fiber: Math.round(entry.per100g.fiber * scale * 10) / 10,
+            },
+        });
+        recordFoodHistory(entry.name, entry.brandName, entry.per100g);
+        setPhotoLoggerOpen(false);
+        await load();
     }
 
     function addCustomFoodItem() {
@@ -493,22 +520,46 @@ export default function ProgressScreen() {
 
                             {showFoodForm && (
                                 <View style={{ marginTop: 16 }}>
-                                    {/* Scan barcode (mobile with camera only) */}
-                                    {canScanBarcodes && !scannedProduct && (
-                                        <TouchableOpacity
-                                            onPress={() => { setLookupError(null); setScannerOpen(true); }}
-                                            activeOpacity={0.8}
-                                            style={{
-                                                flexDirection: "row", alignItems: "center", justifyContent: "center",
-                                                gap: 8, paddingVertical: 12, borderRadius: 12,
-                                                backgroundColor: C.accent, marginBottom: 12,
-                                            }}
-                                        >
-                                            <MaterialCommunityIcons name="barcode-scan" size={18} color={C.background} />
-                                            <Text style={{ color: C.background, fontSize: 14, fontWeight: "800" }}>
-                                                Scan barcode
-                                            </Text>
-                                        </TouchableOpacity>
+                                    {/* Scan barcode / photo log (devices with a camera only) */}
+                                    {(canScanBarcodes || canPhotoLog) && !scannedProduct && (
+                                        <View style={{ flexDirection: "row", gap: 8, marginBottom: 12 }}>
+                                            {canScanBarcodes && (
+                                                <TouchableOpacity
+                                                    onPress={() => { setLookupError(null); setScannerOpen(true); }}
+                                                    activeOpacity={0.8}
+                                                    style={{
+                                                        flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center",
+                                                        gap: 8, paddingVertical: 12, borderRadius: 12,
+                                                        backgroundColor: C.accent,
+                                                    }}
+                                                >
+                                                    <MaterialCommunityIcons name="barcode-scan" size={18} color={C.background} />
+                                                    <Text style={{ color: C.background, fontSize: 14, fontWeight: "800" }}>
+                                                        Scan barcode
+                                                    </Text>
+                                                </TouchableOpacity>
+                                            )}
+                                            {canPhotoLog && (
+                                                <TouchableOpacity
+                                                    onPress={() => {
+                                                        setLookupError(null);
+                                                        getFoodHistory().then(setFoodHistory);
+                                                        setPhotoLoggerOpen(true);
+                                                    }}
+                                                    activeOpacity={0.8}
+                                                    style={{
+                                                        flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center",
+                                                        gap: 8, paddingVertical: 12, borderRadius: 12,
+                                                        backgroundColor: C.violet,
+                                                    }}
+                                                >
+                                                    <MaterialCommunityIcons name="camera-outline" size={18} color={C.background} />
+                                                    <Text style={{ color: C.background, fontSize: 14, fontWeight: "800" }}>
+                                                        Photo log
+                                                    </Text>
+                                                </TouchableOpacity>
+                                            )}
+                                        </View>
                                     )}
 
                                     {lookupLoading && (
@@ -1231,6 +1282,13 @@ export default function ProgressScreen() {
                 visible={scannerOpen}
                 onClose={() => setScannerOpen(false)}
                 onScan={handleBarcodeScanned}
+            />
+
+            <PhotoFoodLogger
+                visible={photoLoggerOpen}
+                onClose={() => setPhotoLoggerOpen(false)}
+                foodHistory={foodHistory}
+                onLog={handlePhotoLog}
             />
 
             {/* Unit picker — rendered in a Modal so it floats above all other elements */}
