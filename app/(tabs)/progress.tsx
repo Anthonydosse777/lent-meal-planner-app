@@ -283,23 +283,25 @@ export default function ProgressScreen() {
     }
 
     async function handlePhotoLog(entry: PhotoLogEntry) {
-        const scale = entry.grams / 100;
         const title = (entry.brandName ? `${entry.brandName} — ${entry.name}` : entry.name)
-            + ` (${entry.grams}g)`;
+            + ` (${entry.quantityLabel})`;
 
         await logMeal({
             id: Math.random().toString(36).slice(2, 10),
             title,
             source: "Photo",
             totalNutrition: {
-                calories: Math.round(entry.per100g.calories * scale),
-                protein: Math.round(entry.per100g.protein * scale * 10) / 10,
-                carbs: Math.round(entry.per100g.carbs * scale * 10) / 10,
-                fat: Math.round(entry.per100g.fat * scale * 10) / 10,
-                fiber: Math.round(entry.per100g.fiber * scale * 10) / 10,
+                calories: Math.round(entry.totalNutrition.calories),
+                protein: Math.round(entry.totalNutrition.protein),
+                carbs: Math.round(entry.totalNutrition.carbs),
+                fat: Math.round(entry.totalNutrition.fat),
+                fiber: Math.round(entry.totalNutrition.fiber),
             },
         });
-        recordFoodHistory(entry.name, entry.brandName, entry.per100g);
+        // Only foods with a per-100g basis are useful as future "recent" matches.
+        if (entry.per100g) {
+            recordFoodHistory(entry.name, entry.brandName, entry.per100g);
+        }
         setPhotoLoggerOpen(false);
         await load();
     }

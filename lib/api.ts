@@ -44,11 +44,21 @@ async function invokeAiProxy<T>(body: Record<string, unknown>): Promise<T> {
     const { data, error } = await supabase.functions.invoke("ai-proxy", { body });
     if (error) {
         let message = error.message;
+        let status: number | undefined;
         try {
-            const ctx = await (error as { context?: Response }).context?.json();
-            if (ctx?.error) message = ctx.error;
+            const ctx = (error as { context?: Response }).context;
+            status = ctx?.status;
+            const parsed = await ctx?.json();
+            if (parsed?.error) message = parsed.error;
         } catch {
             // keep the generic invoke error message
+        }
+        // A 404 means the Edge Function isn't deployed on this project; a bare
+        // fetch failure (no status) usually means the same or a network issue.
+        if (status === 404 || (status === undefined && /failed to send a request/i.test(message))) {
+            throw new Error(
+                "AI service unavailable — the 'ai-proxy' Edge Function isn't deployed yet. Deploy it with `supabase functions deploy ai-proxy`."
+            );
         }
         throw new Error(message);
     }
@@ -106,15 +116,35 @@ export async function fetchAiMeal(params: {
 
 // ─── Photo food analysis ───────────────────────────────────────────────────────
 
+export interface Macros {
+    calories: number;
+    protein: number;
+    carbs: number;
+    fat: number;
+    fiber: number;
+}
+
+export interface FoodCandidate {
+    name: string;
+    per100g: Macros;
+}
+
 export interface PhotoFoodAnalysis {
+    scaleVisible: boolean;
     scaleWeightGrams: number | null;
+    isPackaged: boolean;
     labelDetected: boolean;
     brand: string | null;
     productName: string | null;
     foodGuess: string | null;
+    servingLabel: string | null;
+    searchQuery: string | null;
     matchedRecentIndex: number | null;
+    recommendedLogMode: "scale_weight" | "serving" | "estimate";
     confidence: "high" | "medium" | "low";
-    per100g: { calories: number; protein: number; carbs: number; fat: number; fiber: number } | null;
+    per100g: Macros | null;
+    perServing: Macros | null;
+    candidates: FoodCandidate[];
 }
 
 /**
