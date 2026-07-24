@@ -424,6 +424,30 @@ async function handleFoodSearch(body: Record<string, unknown>): Promise<Response
     return json({ branded: data?.branded ?? [] });
 }
 
+// Open Food Facts relevance search, proxied because search.openfoodfacts.org
+// does not send CORS headers (so the browser can't call it directly). This is
+// the source with the best coverage of European store brands (Lidl, etc.).
+async function handleOffSearch(body: Record<string, unknown>): Promise<Response> {
+    const query = typeof body.query === "string" ? body.query.trim().slice(0, MAX_QUERY_CHARS) : "";
+    if (!query) return json({ hits: [] });
+
+    const params = new URLSearchParams({
+        q: query,
+        page_size: "12",
+        fields: "product_name,brands,nutriments",
+    });
+    try {
+        const res = await fetch(`https://search.openfoodfacts.org/search?${params.toString()}`, {
+            headers: { Accept: "application/json" },
+        });
+        if (!res.ok) return json({ hits: [] });
+        const data = await res.json().catch(() => null);
+        return json({ hits: Array.isArray(data?.hits) ? data.hits : [] });
+    } catch {
+        return json({ hits: [] });
+    }
+}
+
 // ─── Entrypoint ───────────────────────────────────────────────────────────────
 
 Deno.serve(async (req) => {
@@ -453,6 +477,7 @@ Deno.serve(async (req) => {
             case "chat": return await handleChat(body);
             case "photo-food": return await handlePhotoFood(body);
             case "food-search": return await handleFoodSearch(body);
+            case "off-search": return await handleOffSearch(body);
             default: return json({ error: "Unknown action" }, 400);
         }
     } catch (e) {

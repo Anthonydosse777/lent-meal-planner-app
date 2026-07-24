@@ -1,6 +1,7 @@
 // Open Food Facts barcode lookup. Free, no API key, CORS-enabled.
 // Docs: https://wiki.openfoodfacts.org/API
 import { lookupBarcodeUSDA, type USDAFood } from "./usda";
+import { supabase } from "./supabase";
 
 export interface BarcodeProduct {
     barcode: string;
@@ -133,45 +134,38 @@ async function fetchOffProduct(cleaned: string): Promise<BarcodeProduct | null> 
     throw new Error("offline");
 }
 
-// Open Food Facts text search — supplements USDA for international/niche brands.
-// Returns results in USDAFood shape so the existing search UI needs no changes.
-export async function searchFoodsOFF(query: string, pageSize = 10): Promise<USDAFood[]> {
-    if (!query.trim()) return [];
+// Open Food Facts text search — supplements USDA for international/niche brands
+// (e.g. Lidl/Milbona and other European store brands USDA & Nutritionix lack).
+//
+// Proxied through the ai-proxy Edge Function: it uses the dedicated relevance
+// engine at search.openfoodfacts.org (the world.openfoodfacts.org search_terms
+// endpoint silently ignores the query text and returns the whole database),
+// which does not send CORS headers, so it can't be called from the browser.
+export async function searchFoodsOFF(query: string, _pageSize = 12): Promise<USDAFood[]> {
+    const q = query.trim();
+    if (!q) return [];
 
-    const params = new URLSearchParams({
-        search_terms: query.trim(),
-        json: "1",
-        page_size: String(pageSize),
-        fields: "product_name,brands,nutriments",
-        sort_by: "unique_scans_n", // most popular products first
-    });
-
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
-    let data: any;
+    let hits: any[];
     try {
-        const res = await fetch(
-            `https://world.openfoodfacts.org/api/v2/search?${params.toString()}`,
-            { signal: controller.signal }
-        );
-        if (!res.ok) return [];
-        data = await res.json().catch(() => null);
+        const { data, error } = await supabase.functions.invoke("ai-proxy", {
+            body: { action: "off-search", query: q },
+        });
+        if (error || !Array.isArray(data?.hits)) return [];
+        hits = data.hits;
     } catch {
         return [];
-    } finally {
-        clearTimeout(timeout);
     }
 
-    if (!Array.isArray(data?.products)) return [];
-
-    return (data.products as any[])
-        .filter((p) => p.product_name && (p.nutriments?.["energy-kcal_100g"] != null || p.nutriments?.["proteins_100g"] != null))
-        .map((p, i) => {
+    return hits
+        .filter((p: any) => p.product_name && (p.nutriments?.["energy-kcal_100g"] != null || p.nutriments?.["proteins_100g"] != null))
+        .map((p: any, i: number) => {
             const n = p.nutriments ?? {};
+            // `brands` comes back as an array from this engine (vs a comma string elsewhere).
+            const brand = Array.isArray(p.brands) ? p.brands.join(", ") : (p.brands || undefined);
             return {
                 fdcId: -(i + 1),
                 description: p.product_name as string,
-                brandName: (p.brands as string | undefined) || undefined,
+                brandName: brand || undefined,
                 dataType: "Branded",
                 per100g: {
                     calories: Math.round(num(n["energy-kcal_100g"])),
